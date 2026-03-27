@@ -643,7 +643,65 @@ module.exports = class EmacsLitePlugin extends Plugin {
 		return true;
 	    }
 	});
-	
+
+	// Alt+H: delete backward by 1 chunk	
+	this.addCommand({
+	    id: "delete-word-backward",
+	    name: "Delete word backward",
+	    hotkeys: [{ modifiers: ["Alt"], key: "h" }],
+	    editorCallback: (editor) => {
+		const cursor = editor.getCursor();
+		const to = { line: cursor.line, ch: cursor.ch };
+
+		function moveBackwardOne(pos) {
+		    if (pos.ch > 0) {
+			return { line: pos.line, ch: pos.ch - 1 };
+		    }
+
+		    if (pos.line > 0) {
+			const prevLine = pos.line - 1;
+			return { line: prevLine, ch: editor.getLine(prevLine).length };
+		    }
+
+		    return pos;
+		}
+
+		let pos = { line: cursor.line, ch: cursor.ch };
+		let from = pos;
+
+		for (let i = 0; i < 1000; i++) {
+		    const lineText = editor.getLine(pos.line);
+		    const newCh = findWordBackwardBoundary(lineText, pos.ch);
+
+		    // 同じ行の中で後退できた
+		    if (newCh < pos.ch) {
+			from = { line: pos.line, ch: newCh };
+			break;
+		    }
+
+		    // 後退できないなら1文字前へ移動して再試行
+		    const prevPos = moveBackwardOne(pos);
+
+		    // もう戻れない
+		    if (prevPos.line === pos.line && prevPos.ch === pos.ch) {
+			from = pos;
+			break;
+		    }
+
+		    pos = prevPos;
+		}
+
+		// 何も削除できないなら終了
+		if (from.line === to.line && from.ch === to.ch) {
+		    return true;
+		}
+
+		editor.replaceRange("", from, to);
+		editor.setCursor(from);
+		return true;
+	    }
+	});
+
 	
 	// Ctrl+Z: Undo
 	this.addCommand({
