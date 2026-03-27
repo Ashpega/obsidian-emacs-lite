@@ -16,7 +16,10 @@ const {
 } = require("@codemirror/commands");
 
 
-/* 以下, Alt+F/B/H/D で使用する単語単位の判定code for Japanese */
+/*
+  日本語文章に対するAlt+F/B/D/H で必要となるediting chunk関連の関数群
+*/
+
 function isAsciiWordChar(ch) {
     return /[A-Za-z0-9_]/.test(ch);
 }
@@ -52,6 +55,29 @@ function getCharCategory(ch) {
     return "other";
 }
 
+/* 
+ * Alt+F (forward word movement) 用の境界判定関数。
+ *
+ * 日本語と英語が混在するテキストに対して、
+ * 「編集しやすい文節的なまとまり（editing chunk）」の終端を右方向に探索する。
+ *
+ * 挙動の基本方針：
+ * - 英数字列は1語としてまとめて進む
+ * - カタカナ列も1語として扱う
+ * - 句読点・記号はひとまとまりでスキップ
+ * - 漢字列はひとまとまりで進み、
+ *   直後のひらがながある場合は文脈に応じて取り込む
+ *   - 次に漢字が続く場合：ひらがなは最大1〜2文字まで含める
+ *     （例: 「近隣の」「環境は」）
+ *   - 句読点・行末・英数字に向かう場合：ひらがな列をすべて含める
+ *     （例: 「要素となります」）
+ * - ひらがな列単体は1まとまりとして扱う
+ *
+ * 目的：
+ * - Ctrl+F（1文字単位）との差を維持しつつ、
+ *   日本語でも自然なジャンプ単位で移動できるようにする
+ * - 厳密な形態素解析ではなく、軽量で実用的な区切りを提供する
+ */
 function findWordForwardBoundary(line, startCh) {
     const len = line.length;
     let ch = startCh;
@@ -128,6 +154,102 @@ function findWordForwardBoundary(line, startCh) {
     // 7. その他は1文字進める
     return ch + 1;
 }
+
+/* 
+ * Alt+B (backward word movement) 用の境界判定関数。
+ *
+ * 日本語と英語が混在するテキストに対して、
+ * 「編集しやすい文節的なまとまり（editing chunk）」の先頭を左方向に探索する。
+ *
+ * 挙動の基本方針：
+ * - 英数字列は1語としてまとめて戻る
+ * - カタカナ列も1語として扱う
+ * - 句読点・記号はひとまとまりでスキップ
+ * - 漢字列はひとまとまり
+ * - ひらがな列は通常ひとまとまりだが、
+ *   直前が漢字かつ長さが1〜2文字の場合は助詞とみなし、
+ *   漢字と結合して「環境は」「近隣の」などの単位で戻る
+ *
+ * 目的：
+ * - Ctrl+B（1文字単位）との差を維持しつつ、
+ *   日本語でも自然なジャンプ単位で移動できるようにする
+ * - 厳密な形態素解析ではなく、軽量で実用的な区切りを提供する
+ */
+function findWordBackwardBoundary(line, startCh) {
+    let ch = startCh;
+
+    if (ch <= 0) return 0;
+
+    // 1. いまの位置の左隣から見る
+    ch--;
+
+    // 2. 空白は左に飛ばす
+    while (ch >= 0 && getCharCategory(line[ch]) === "space") {
+	ch--;
+    }
+    if (ch < 0) return 0;
+
+    // 3. 句読点はひとまとまり
+    if (getCharCategory(line[ch]) === "punct") {
+	while (ch >= 0 && getCharCategory(line[ch]) === "punct") {
+	    ch--;
+	}
+	return ch + 1;
+    }
+
+    // 4. 英数字列はひとまとまり
+    if (getCharCategory(line[ch]) === "ascii") {
+	while (ch >= 0 && getCharCategory(line[ch]) === "ascii") {
+	    ch--;
+	}
+	return ch + 1;
+    }
+
+    // 5. カタカナ列はひとまとまり
+    if (getCharCategory(line[ch]) === "katakana") {
+	while (ch >= 0 && getCharCategory(line[ch]) === "katakana") {
+	    ch--;
+	}
+	return ch + 1;
+    }
+
+    // 6. ひらがな列
+    if (getCharCategory(line[ch]) === "hiragana") {
+	const hiraEnd = ch + 1;
+
+	while (ch >= 0 && getCharCategory(line[ch]) === "hiragana") {
+	    ch--;
+	}
+
+	const hiraStart = ch + 1;
+	const hiraLen = hiraEnd - hiraStart;
+	const prevCat = ch >= 0 ? getCharCategory(line[ch]) : "bol";
+
+	// 直前が漢字なら、短いひらがな(1〜2文字)は漢字側に含める
+	// 例: 「環境は」なら「は」は独立させず「環境は」の先頭へ戻る
+	if (prevCat === "kanji" && hiraLen <= 2) {
+	    while (ch >= 0 && getCharCategory(line[ch]) === "kanji") {
+		ch--;
+	    }
+	    return ch + 1;
+	}
+
+	// それ以外はひらがな列の先頭
+	return hiraStart;
+    }
+
+    // 7. 漢字列
+    if (getCharCategory(line[ch]) === "kanji") {
+	while (ch >= 0 && getCharCategory(line[ch]) === "kanji") {
+	    ch--;
+	}
+	return ch + 1;
+    }
+
+    // 8. その他は1文字戻る
+    return ch;
+}
+
 
 module.exports = class EmacsLitePlugin extends Plugin {
     onload() {
@@ -365,41 +487,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    hotkeys: [{ modifiers: ["Alt"], key: "f" }],
 	    editorCallback: (editor) => {
 		const cursor = editor.getCursor();
-		const lastLine = editor.lineCount() - 1;
-
-		let lineNo = cursor.line;
-		let ch = cursor.ch;
-
-		while (true) {
-		    const line = editor.getLine(lineNo);
-		    const newCh = findWordForwardBoundary(line, ch);
-
-		    // 同じ行の中
-		    if (newCh > ch) {
-			editor.setCursor({ line: lineNo, ch: newCh });
-			return true;
-		    }
-
-		    // 行末まで来ていて、次の行があるなら次行へ
-		    if (lineNo < lastLine) {
-			lineNo++;
-			ch = 0;
-			continue;
-		    }
-
-		    // 文書末尾
-		    return true;
-		}
-	    }
-	});
-	
-	// Alt+F: 右に一文字分進む
-	this.addCommand({
-	    id: "cursor-word-forward",
-	    name: "Move cursor forward by word",
-	    hotkeys: [{ modifiers: ["Alt"], key: "f" }],
-	    editorCallback: (editor) => {
-		const cursor = editor.getCursor();
 
 		function moveForwardOne(pos) {
 		    const lineText = editor.getLine(pos.line);
@@ -446,6 +533,54 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    }
 	});
 
+	// Alt+B: 左へ1単語分移動
+	this.addCommand({
+	    id: "cursor-word-backward",
+	    name: "Move cursor backward by word",
+	    hotkeys: [{ modifiers: ["Alt"], key: "b" }],
+	    editorCallback: (editor) => {
+		const cursor = editor.getCursor();
+
+		function moveBackwardOne(pos) {
+		    if (pos.ch > 0) {
+			return { line: pos.line, ch: pos.ch - 1 };
+		    }
+
+		    if (pos.line > 0) {
+			const prevLine = pos.line - 1;
+			return { line: prevLine, ch: editor.getLine(prevLine).length };
+		    }
+
+		    return pos;
+		}
+
+		let pos = { line: cursor.line, ch: cursor.ch };
+
+		for (let i = 0; i < 1000; i++) {
+		    const lineText = editor.getLine(pos.line);
+		    const newCh = findWordBackwardBoundary(lineText, pos.ch);
+
+		    // 同じ行の中で後退できた
+		    if (newCh < pos.ch) {
+			editor.setCursor({ line: pos.line, ch: newCh });
+			return true;
+		    }
+
+		    // 後退できないなら1文字前へ移動して再試行
+		    const prevPos = moveBackwardOne(pos);
+
+		    // もう戻れない
+		    if (prevPos.line === pos.line && prevPos.ch === pos.ch) {
+			editor.setCursor(pos);
+			return true;
+		    }
+
+		    pos = prevPos;
+		}
+
+		return true;
+	    }
+	});
 	
 	// Ctrl+Z: Undo
 	this.addCommand({
