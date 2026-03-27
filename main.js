@@ -88,23 +88,33 @@ function findWordForwardBoundary(line, startCh) {
 	return ch;
     }
 
-    // 5. 漢字列 + 直後の短いひらがな(1〜2文字)をまとめる
+    // 5. 漢字列 + 後続ひらがなの扱いを改善
     if (getCharCategory(line[ch]) === "kanji") {
+	// 漢字列本体
 	while (ch < len && getCharCategory(line[ch]) === "kanji") {
 	    ch++;
 	}
 
-	let hiraCount = 0;
-	while (
-	    ch < len &&
-		getCharCategory(line[ch]) === "hiragana" &&
-		hiraCount < 2
-	) {
+	const hiraStart = ch;
+
+	// 直後のひらがな列を全部見る
+	while (ch < len && getCharCategory(line[ch]) === "hiragana") {
 	    ch++;
-	    hiraCount++;
 	}
 
-	return ch;
+	const hiraEnd = ch;
+	const hiraLen = hiraEnd - hiraStart;
+	const nextCat = ch < len ? getCharCategory(line[ch]) : "eol";
+
+	// 直後に別の漢字が来るなら、ひらがなは短く切る
+	// 例: 近隣の環境 -> "近隣の"
+	if (nextCat === "kanji") {
+	    return hiraStart + Math.min(hiraLen, 2);
+	}
+
+	// 句読点・空白・行末・英数字などに向かうなら、ひらがな列を最後まで含める
+	// 例: 要素となります。 -> "要素となります"
+	return hiraEnd;
     }
 
     // 6. ひらがな列はひとまとまり
@@ -118,7 +128,6 @@ function findWordForwardBoundary(line, startCh) {
     // 7. その他は1文字進める
     return ch + 1;
 }
-
 
 module.exports = class EmacsLitePlugin extends Plugin {
     onload() {
