@@ -581,6 +581,69 @@ module.exports = class EmacsLitePlugin extends Plugin {
 		return true;
 	    }
 	});
+
+	// Alt+D: delete forward by 1 chunk
+	this.addCommand({
+	    id: "delete-word-forward",
+	    name: "Delete word forward",
+	    hotkeys: [{ modifiers: ["Alt"], key: "d" }],
+	    editorCallback: (editor) => {
+		const cursor = editor.getCursor();
+		const from = { line: cursor.line, ch: cursor.ch };
+
+		function moveForwardOne(pos) {
+		    const lineText = editor.getLine(pos.line);
+
+		    // 同じ論理行内で1文字進む
+		    if (pos.ch < lineText.length) {
+			return { line: pos.line, ch: pos.ch + 1 };
+		    }
+
+		    // 次の論理行へ
+		    if (pos.line < editor.lineCount() - 1) {
+			return { line: pos.line + 1, ch: 0 };
+		    }
+
+		    // 文書末尾
+		    return pos;
+		}
+
+		let pos = { line: cursor.line, ch: cursor.ch };
+		let to = pos;
+
+		for (let i = 0; i < 1000; i++) {
+		    const lineText = editor.getLine(pos.line);
+		    const newCh = findWordForwardBoundary(lineText, pos.ch);
+
+		    // 同じ行の中で前進できた
+		    if (newCh > pos.ch) {
+			to = { line: pos.line, ch: newCh };
+			break;
+		    }
+
+		    // 前進できないなら1文字先へ進めて再試行
+		    const nextPos = moveForwardOne(pos);
+
+		    // もう進めない
+		    if (nextPos.line === pos.line && nextPos.ch === pos.ch) {
+			to = pos;
+			break;
+		    }
+
+		    pos = nextPos;
+		}
+
+		// 何も削除できないなら終了
+		if (to.line === from.line && to.ch === from.ch) {
+		    return true;
+		}
+
+		editor.replaceRange("", from, to);
+		editor.setCursor(from);
+		return true;
+	    }
+	});
+	
 	
 	// Ctrl+Z: Undo
 	this.addCommand({
