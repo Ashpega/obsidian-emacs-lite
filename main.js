@@ -480,10 +480,10 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	});
 
 
-	//Alt+F: 右へ1単語分移動
+	// Alt+F: Move cursor forward by chunk
 	this.addCommand({
-	    id: "cursor-word-forward",
-	    name: "Move cursor forward by word",
+	    id: "cursor-chunk-forward",
+	    name: "Move cursor forward by chunk",
 	    hotkeys: [{ modifiers: ["Alt"], key: "f" }],
 	    editorCallback: (editor) => {
 		const cursor = editor.getCursor();
@@ -533,10 +533,10 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    }
 	});
 
-	// Alt+B: 左へ1単語分移動
+	// Alt+B: Move cursor backward by chunk
 	this.addCommand({
-	    id: "cursor-word-backward",
-	    name: "Move cursor backward by word",
+	    id: "cursor-chunk-backward",
+	    name: "Move cursor backward by chunk",
 	    hotkeys: [{ modifiers: ["Alt"], key: "b" }],
 	    editorCallback: (editor) => {
 		const cursor = editor.getCursor();
@@ -584,8 +584,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	// Alt+D: delete forward by 1 chunk
 	this.addCommand({
-	    id: "delete-word-forward",
-	    name: "Delete word forward",
+	    id: "delete-chunk-forward",
+	    name: "Delete chunk forward",
 	    hotkeys: [{ modifiers: ["Alt"], key: "d" }],
 	    editorCallback: (editor) => {
 		const cursor = editor.getCursor();
@@ -646,8 +646,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	// Alt+H: delete backward by 1 chunk	
 	this.addCommand({
-	    id: "delete-word-backward",
-	    name: "Delete word backward",
+	    id: "delete-chunk-backward",
+	    name: "Delete chunk backward",
 	    hotkeys: [{ modifiers: ["Alt"], key: "h" }],
 	    editorCallback: (editor) => {
 		const cursor = editor.getCursor();
