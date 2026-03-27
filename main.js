@@ -15,6 +15,111 @@ const {
     deleteGroupBackward
 } = require("@codemirror/commands");
 
+
+/* 以下, Alt+F/B/H/D で使用する単語単位の判定code for Japanese */
+function isAsciiWordChar(ch) {
+    return /[A-Za-z0-9_]/.test(ch);
+}
+
+function isWhitespace(ch) {
+    return /\s/.test(ch);
+}
+
+function isPunctuation(ch) {
+    return /[、。.,!?;:()\[\]{}「」『』【】〈〉《》〔〕…]/.test(ch);
+}
+
+function isHiragana(ch) {
+    return /[\u3040-\u309F]/.test(ch);
+}
+
+function isKatakana(ch) {
+    return /[\u30A0-\u30FF]/.test(ch);
+}
+
+function isKanji(ch) {
+    return /[\u4E00-\u9FFF]/.test(ch);
+}
+
+function getCharCategory(ch) {
+    if (!ch) return "other";
+    if (isWhitespace(ch)) return "space";
+    if (isPunctuation(ch)) return "punct";
+    if (isAsciiWordChar(ch)) return "ascii";
+    if (isHiragana(ch)) return "hiragana";
+    if (isKatakana(ch)) return "katakana";
+    if (isKanji(ch)) return "kanji";
+    return "other";
+}
+
+function findWordForwardBoundary(line, startCh) {
+    const len = line.length;
+    let ch = startCh;
+
+    if (ch >= len) return ch;
+
+    // 1. 空白を飛ばす
+    while (ch < len && getCharCategory(line[ch]) === "space") {
+	ch++;
+    }
+    if (ch >= len) return ch;
+
+    // 2. 句読点はひとまとまりで飛ばす
+    if (getCharCategory(line[ch]) === "punct") {
+	while (ch < len && getCharCategory(line[ch]) === "punct") {
+	    ch++;
+	}
+	return ch;
+    }
+
+    // 3. 英数字列はひとまとまり
+    if (getCharCategory(line[ch]) === "ascii") {
+	while (ch < len && getCharCategory(line[ch]) === "ascii") {
+	    ch++;
+	}
+	return ch;
+    }
+
+    // 4. カタカナ列はひとまとまり
+    if (getCharCategory(line[ch]) === "katakana") {
+	while (ch < len && getCharCategory(line[ch]) === "katakana") {
+	    ch++;
+	}
+	return ch;
+    }
+
+    // 5. 漢字列 + 直後の短いひらがな(1〜2文字)をまとめる
+    if (getCharCategory(line[ch]) === "kanji") {
+	while (ch < len && getCharCategory(line[ch]) === "kanji") {
+	    ch++;
+	}
+
+	let hiraCount = 0;
+	while (
+	    ch < len &&
+		getCharCategory(line[ch]) === "hiragana" &&
+		hiraCount < 2
+	) {
+	    ch++;
+	    hiraCount++;
+	}
+
+	return ch;
+    }
+
+    // 6. ひらがな列はひとまとまり
+    if (getCharCategory(line[ch]) === "hiragana") {
+	while (ch < len && getCharCategory(line[ch]) === "hiragana") {
+	    ch++;
+	}
+	return ch;
+    }
+
+    // 7. その他は1文字進める
+    return ch + 1;
+}
+
+
 module.exports = class EmacsLitePlugin extends Plugin {
     onload() {
 
@@ -243,14 +348,95 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 
+
 	//Alt+F: 右へ1単語分移動
 	this.addCommand({
 	    id: "cursor-word-forward",
 	    name: "Move cursor forward by word",
+	    hotkeys: [{ modifiers: ["Alt"], key: "f" }],
 	    editorCallback: (editor) => {
-		return cursorGroupForward(editor.cm);
+		const cursor = editor.getCursor();
+		const lastLine = editor.lineCount() - 1;
+
+		let lineNo = cursor.line;
+		let ch = cursor.ch;
+
+		while (true) {
+		    const line = editor.getLine(lineNo);
+		    const newCh = findWordForwardBoundary(line, ch);
+
+		    // 同じ行の中
+		    if (newCh > ch) {
+			editor.setCursor({ line: lineNo, ch: newCh });
+			return true;
+		    }
+
+		    // 行末まで来ていて、次の行があるなら次行へ
+		    if (lineNo < lastLine) {
+			lineNo++;
+			ch = 0;
+			continue;
+		    }
+
+		    // 文書末尾
+		    return true;
+		}
 	    }
 	});
+	
+	// Alt+F: 右に一文字分進む
+	this.addCommand({
+	    id: "cursor-word-forward",
+	    name: "Move cursor forward by word",
+	    hotkeys: [{ modifiers: ["Alt"], key: "f" }],
+	    editorCallback: (editor) => {
+		const cursor = editor.getCursor();
+
+		function moveForwardOne(pos) {
+		    const lineText = editor.getLine(pos.line);
+
+		    // 同じ論理行内で1文字進む
+		    if (pos.ch < lineText.length) {
+			return { line: pos.line, ch: pos.ch + 1 };
+		    }
+
+		    // 次の論理行へ
+		    if (pos.line < editor.lineCount() - 1) {
+			return { line: pos.line + 1, ch: 0 };
+		    }
+
+		    // 文書末尾
+		    return pos;
+		}
+
+		let pos = { line: cursor.line, ch: cursor.ch };
+
+		for (let i = 0; i < 1000; i++) {
+		    const lineText = editor.getLine(pos.line);
+		    const newCh = findWordForwardBoundary(lineText, pos.ch);
+
+		    // 同じ論理行内で前進できた
+		    if (newCh > pos.ch) {
+			editor.setCursor({ line: pos.line, ch: newCh });
+			return true;
+		    }
+
+		    // 前進できないなら1文字先へ進めて再試行
+		    const nextPos = moveForwardOne(pos);
+
+		    // もう進めない
+		    if (nextPos.line === pos.line && nextPos.ch === pos.ch) {
+			editor.setCursor(pos);
+			return true;
+		    }
+
+		    pos = nextPos;
+		}
+
+		return true;
+	    }
+	});
+
 	
 	// Ctrl+Z: Undo
 	this.addCommand({
