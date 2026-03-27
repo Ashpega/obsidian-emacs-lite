@@ -1,0 +1,557 @@
+const { Prec } = require("@codemirror/state");
+const { keymap } = require("@codemirror/view");
+const { Plugin, MarkdownView } = require("obsidian");
+const { clipboard } = require("electron");
+const {
+    cursorLineBoundaryForward,
+    cursorLineBoundaryBackward,
+    cursorLineUp,
+    cursorLineDown
+} = require("@codemirror/commands");
+
+module.exports = class EmacsLitePlugin extends Plugin {
+    onload() {
+
+	// 状態変数の追加
+	this.markActive = false;
+	this.markAnchor = null;
+
+	// Ctrl+M: Return / Enter
+	this.addCommand({
+	    id: "insert-newline",
+	    name: "Insert newline",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "m" }],
+	    editorCallback: (editor) => {
+		editor.replaceSelection("\n");
+
+		if (this.markActive) {
+		    this.clearMark(editor);
+		}
+	    },
+	});
+
+
+	// Ctrl+A: visual line の左端へ移動
+	this.addCommand({
+	    id: "move-to-visual-line-start",
+	    name: "Move to visual line start",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "a" }],
+	    editorCallback: (editor) => {
+		const cm = this.getEditorView();
+
+		if (cm) {
+		    cursorLineBoundaryBackward(cm);
+		} else {
+		    // fallback: 従来の論理行頭
+		    const cursor = editor.getCursor();
+		    editor.setCursor({ line: cursor.line, ch: 0 });
+		}
+
+		if (this.markActive) {
+		    this.syncMarkSelection(editor);
+		}
+	    },
+	});
+	
+
+	// Ctrl+E: visual line の右端へ移動
+	this.addCommand({
+	    id: "move-to-visual-line-end",
+	    name: "Move to visual line end",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "e" }],
+	    editorCallback: (editor) => {
+		const cm = this.getEditorView();
+
+		if (cm) {
+		    cursorLineBoundaryForward(cm);
+		} else {
+		    // fallback: 論理行末
+		    const cursor = editor.getCursor();
+		    const lineText = editor.getLine(cursor.line);
+		    editor.setCursor({ line: cursor.line, ch: lineText.length });
+		}
+
+		if (this.markActive) {
+		    this.syncMarkSelection(editor);
+		}
+	    },
+	});
+	
+	// Ctrl+F: 右へ1文字移動
+	this.addCommand({
+	    id: "move-char-right",
+	    name: "Move character right",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "f" }],
+	    editorCallback: (editor) => {
+		const offset = editor.posToOffset(editor.getCursor());
+		const newPos = editor.offsetToPos(offset + 1);
+
+		editor.setCursor(newPos);
+
+		if (this.markActive) {
+		    this.syncMarkSelection(editor);
+		}
+	    },
+	});
+	
+	// Ctrl+B: 左へ1文字移動
+	this.addCommand({
+	    id: "move-char-left",
+	    name: "Move character left",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "b" }],
+	    editorCallback: (editor) => {
+		const offset = editor.posToOffset(editor.getCursor());
+		const newOffset = Math.max(offset - 1, 0);
+		const newPos = editor.offsetToPos(newOffset);
+
+		editor.setCursor(newPos);
+
+		if (this.markActive) {
+		    this.syncMarkSelection(editor);
+		}
+	    },
+	});
+
+	// Ctrl+N: visual line で1行下へ移動
+	this.addCommand({
+	    id: "move-visual-line-down",
+	    name: "Move visual line down",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "n" }],
+	    editorCallback: (editor) => {
+		const cm = this.getEditorView();
+
+		if (cm) {
+		    cursorLineDown(cm);
+		} else {
+		    // fallback: 論理行ベース
+		    const cursor = editor.getCursor();
+		    const maxLine = editor.lastLine();
+		    const newLine = Math.min(cursor.line + 1, maxLine);
+		    const lineLength = editor.getLine(newLine).length;
+		    const newCh = Math.min(cursor.ch, lineLength);
+		    editor.setCursor({ line: newLine, ch: newCh });
+		}
+
+		if (this.markActive) {
+		    this.syncMarkSelection(editor);
+		}
+	    },
+	});
+
+	// Ctrl+P: visual line で1行上へ移動
+	this.addCommand({
+	    id: "move-visual-line-up",
+	    name: "Move visual line up",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "p" }],
+	    editorCallback: (editor) => {
+		const cm = this.getEditorView();
+
+		if (cm) {
+		    cursorLineUp(cm);
+		} else {
+		    // fallback: 論理行ベース
+		    const cursor = editor.getCursor();
+		    const newLine = Math.max(cursor.line - 1, 0);
+		    const lineLength = editor.getLine(newLine).length;
+		    const newCh = Math.min(cursor.ch, lineLength);
+		    editor.setCursor({ line: newLine, ch: newCh });
+		}
+
+		if (this.markActive) {
+		    this.syncMarkSelection(editor);
+		}
+	    },
+	});
+	
+        // Ctrl+D: 右側の文字を削除
+	this.addCommand({
+            id: "delete-char-right",
+            name: "Delete character right",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "d" }],
+            editorCallback: (editor) => {
+                const selection = editor.getSelection();
+
+                // 選択範囲がある場合は、その範囲を削除
+                if (selection && selection.length > 0) {
+                    editor.replaceSelection("");
+                    return;
+                }
+
+                const cursor = editor.getCursor();
+                const line = editor.getLine(cursor.line);
+
+                // 行末で、かつ最終行でもある場合は何もしない
+                const isEndOfLine = cursor.ch >= line.length;
+                const isLastLine = cursor.line >= editor.lineCount() - 1;
+
+                if (isEndOfLine && isLastLine) {
+                    return;
+                }
+
+                // 通常ケース:
+                // - 行中なら右1文字削除
+                // - 行末なら次行との改行を削除（Emacs/Ctrl-d風）
+                const from = { line: cursor.line, ch: cursor.ch };
+                const to = isEndOfLine
+                    ? { line: cursor.line + 1, ch: 0 }
+                    : { line: cursor.line, ch: cursor.ch + 1 };
+
+                editor.replaceRange("", from, to);
+            },
+        });
+
+	// Ctrl+H: 左側の文字を削除
+	this.addCommand({
+	    id: "delete-char-left",
+	    name: "Delete character left",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "h" }],
+	    editorCallback: (editor) => {
+		const selection = editor.getSelection();
+
+		// 選択範囲がある場合は、その範囲を削除
+		if (selection && selection.length > 0) {
+		    editor.replaceSelection("");
+		    return;
+		}
+
+		const cursor = editor.getCursor();
+
+		// 文書先頭なら何もしない
+		const isStartOfLine = cursor.ch === 0;
+		const isFirstLine = cursor.line === 0;
+
+		if (isStartOfLine && isFirstLine) {
+		    return;
+		}
+
+		// 通常ケース:
+		// - 行中なら左1文字削除
+		// - 行頭なら前行との改行を削除（Emacs/Ctrl-h風というより Backspace 風）
+		const from = isStartOfLine
+		      ? { line: cursor.line - 1, ch: editor.getLine(cursor.line - 1).length }
+		      : { line: cursor.line, ch: cursor.ch - 1 };
+
+		const to = { line: cursor.line, ch: cursor.ch };
+
+		editor.replaceRange("", from, to);
+	    },
+	});
+
+	// Ctrl+Z: Undo
+	this.addCommand({
+	    id: "undo",
+	    name: "Undo",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "z" }],
+	    editorCallback: (editor) => {
+		editor.undo();
+	    },
+	});
+
+	// Ctrl+Shift+Z: Redo
+	this.addCommand({
+	    id: "redo",
+	    name: "Redo",
+	    hotkeys: [{ modifiers: ["Ctrl", "Shift"], key: "z" }],
+	    editorCallback: (editor) => {
+		editor.redo();
+	    },
+	});
+
+	// 保持用の変数の宣言
+        this.lastYankText = "";
+	
+	// Ctrl+K: カーソル位置から行末まで削除し、削除内容をクリップボードへ
+	this.addCommand({
+	    id: "kill-to-end-of-line",
+	    name: "Kill to end of line",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "k" }],
+	    editorCallback: (editor) => {
+		const selection = editor.getSelection();
+
+		// 選択範囲がある場合は、その範囲を削除してコピー
+		if (selection && selection.length > 0) {
+		    clipboard.writeText(selection);
+		    editor.replaceSelection("");
+		    return;
+		}
+
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+		const isEndOfLine = cursor.ch >= lineText.length;
+		const isLastLine = cursor.line >= editor.lineCount() - 1;
+
+		// 最終行末尾なら何もしない
+		if (isEndOfLine && isLastLine) {
+		    return;
+		}
+
+		let killedText = "";
+		let from = { line: cursor.line, ch: cursor.ch };
+		let to;
+
+		if (isEndOfLine) {
+		    // 行末なら改行を削除（次行と結合）
+		    killedText = "\n";
+		    to = { line: cursor.line + 1, ch: 0 };
+		} else {
+		    // 行の途中ならカーソル位置から行末まで削除
+		    killedText = lineText.slice(cursor.ch);
+		    to = { line: cursor.line, ch: lineText.length };
+		}
+		
+		this.lastYankText = killedText;
+		clipboard.writeText(killedText);
+		editor.replaceRange("", from, to);
+	    },
+	});
+	
+	// Ctrl+W: 選択範囲をコピーして削除
+        this.addCommand({
+            id: "kill-region",
+            name: "Kill region",
+            hotkeys: [{ modifiers: ["Ctrl"], key: "w" }],
+            editorCallback: (editor) => {
+                const selection = editor.getSelection();
+
+                if (!selection || selection.length === 0) {
+                    return;
+                }
+
+                this.lastYankText = selection;
+                clipboard.writeText(selection);
+                editor.replaceSelection("");
+
+		if (this.markActive) {
+		    this.clearMark(editor);
+		}
+            },
+        });
+
+        // Alt+W: 選択範囲をコピーのみ
+        this.addCommand({
+            id: "copy-region",
+            name: "Copy region",
+            hotkeys: [{ modifiers: ["Alt"], key: "w" }],
+            editorCallback: (editor) => {
+                const selection = editor.getSelection();
+
+                if (!selection || selection.length === 0) {
+                    return;
+                }
+
+                this.lastYankText = selection;
+                clipboard.writeText(selection);
+
+		if (this.markActive) {
+		    this.clearMark(editor);
+		}
+            },
+        });
+
+        // Ctrl+Y: 直前に kill / copy した内容を貼り付け
+	this.addCommand({
+	    id: "yank",
+	    name: "Yank",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "y" }],
+	    editorCallback: async (editor) => {
+		let text = this.lastYankText;
+
+		// lastYankTextになければ、clipboardから取得.
+		// clipboard.readText() は非同期. asyncで扱う.
+		if (!text) {
+		    try {
+			text = await navigator.clipboard.readText();
+		    } catch (e) {
+			return;
+		    }
+		}
+
+		if (!text) return;
+
+		editor.replaceSelection(text);
+
+		if (this.markActive) {
+		    this.clearMark(editor);
+		}
+	    },
+	});
+	
+	// Ctrl+C: コピーして mark 解除.
+	// defaultでCtrl+Cはcopyだが、MarkSetの解除のために自作cmdとして登録.
+	this.addCommand({
+	    id: "copy-region-ctrl-c",
+	    name: "Copy region (Ctrl+C)",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "c" }],
+	    editorCallback: (editor) => {
+		const selection = editor.getSelection();
+
+		if (!selection || selection.length === 0) {
+		    return;
+		}
+
+		this.lastYankText = selection;
+		clipboard.writeText(selection);
+
+		if (this.markActive) {
+		    this.clearMark(editor);
+		}
+	    },
+	});
+
+
+	// Ctrl+L: カーソル位置を画面中央付近に表示
+	this.addCommand({
+	    id: "recenter-cursor",
+	    name: "Recenter cursor",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "l" }],
+	    editorCallback: (editor) => {
+		const cursor = editor.getCursor();
+
+		// CodeMirror系の scrollIntoView を使って、
+		// カーソル位置が見えるようにしつつ中央寄せを狙う
+		editor.scrollIntoView(
+		    { from: cursor, to: cursor },
+		    true
+		);
+
+		// 少し待ってから中央へ再調整
+		requestAnimationFrame(() => {
+		    const wrapper = document.querySelector(".cm-scroller");
+		    const cursorEl = document.querySelector(".cm-cursor");
+
+		    if (!wrapper || !cursorEl) {
+			return;
+		    }
+
+		    const wrapperRect = wrapper.getBoundingClientRect();
+		    const cursorRect = cursorEl.getBoundingClientRect();
+
+		    const currentScrollTop = wrapper.scrollTop;
+		    const offset =
+			  (cursorRect.top - wrapperRect.top) - wrapperRect.height / 2;
+
+		    wrapper.scrollTop = currentScrollTop + offset;
+		});
+	    },
+	});
+
+	// Ctrl+Xを選択があるときだけcut(Windows標準)に変更.
+	// DefaultはCtrl+Cが一行全体の切り取り.
+	this.registerEditorExtension(
+	    Prec.high(
+		keymap.of([
+		    {
+			key: "Ctrl-x",
+			run: (view) => {
+			    const hasSelection = view.state.selection.ranges.some(
+				(r) => !r.empty
+			    );
+
+			    if (!hasSelection) {
+				return true; // 選択がなければ何もしない
+			    }
+
+			    document.execCommand("cut");
+			    return true;
+			},
+		    },
+		])
+	    )
+	);
+	
+	// Ctrl+< : 文書の先頭へ移動
+	this.addCommand({
+	    id: "go-to-document-start",
+	    name: "Go to document start",
+	    hotkeys: [{ modifiers: ["Ctrl", "Shift"], key: "," }],
+	    editorCallback: (editor) => {
+		editor.setCursor({ line: 0, ch: 0 });
+	    },
+	});
+
+	
+	// Ctrl+> : 文書の末尾へ移動
+	this.addCommand({
+	    id: "go-to-document-end",
+	    name: "Go to document end",
+	    hotkeys: [{ modifiers: ["Ctrl", "Shift"], key: "." }],
+	    editorCallback: (editor) => {
+		const lastLine = editor.lineCount() - 1;
+		const lastCh = editor.getLine(lastLine).length;
+		editor.setCursor({ line: lastLine, ch: lastCh });
+	    },
+	});
+
+	// Ctrl+Space: mark 開始
+	this.addCommand({
+	    id: "set-mark",
+	    name: "Set mark",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: " " }],
+	    editorCallback: (editor) => {
+		const cursor = editor.getCursor();
+		this.markActive = true;
+		this.markAnchor = { line: cursor.line, ch: cursor.ch };
+		editor.setSelection(this.markAnchor, this.markAnchor);
+	    },
+	});
+
+	// Ctrl+G: mark 解除
+	this.addCommand({
+	    id: "cancel-mark",
+	    name: "Cancel mark",
+	    hotkeys: [{ modifiers: ["Ctrl"], key: "g" }],
+	    editorCallback: (editor) => {
+		if (!this.markActive) return;
+		this.clearMark(editor);
+	    },
+	});
+
+	// mark中にカーソル移動したら、移動後に選択範囲を同期
+	this.registerDomEvent(document, "keyup", (evt) => {
+	    if (!this.markActive) return;
+
+	    // mark開始/解除キー自身は除外
+	    if (evt.ctrlKey && (evt.key === "g" || evt.code === "Space")) {
+		return;
+	    }
+
+	    const editor = this.getActiveEditor();
+	    if (!editor) return;
+
+	    this.syncMarkSelection(editor);
+	});
+	
+    }
+
+    getActiveEditor() {
+	const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+	return view ? view.editor : null;
+    }
+
+    syncMarkSelection(editor) {
+	if (!this.markActive || !this.markAnchor) return;
+
+	const cursor = editor.getCursor();
+
+	editor.setSelection(
+            { line: this.markAnchor.line, ch: this.markAnchor.ch },
+            { line: cursor.line, ch: cursor.ch }
+	);
+    }
+
+    clearMark(editor) {
+	const cursor = editor.getCursor("to");
+	editor.setCursor(cursor);
+	this.markActive = false;
+	this.markAnchor = null;
+    }
+
+    getEditorView() {
+	const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+	if (!view) return null;
+
+	// Obsidian内部のCM6 EditorView
+	return view.editor?.cm ?? null;
+    }
+
+};
