@@ -8,6 +8,12 @@ const {
     cursorLineUp,
     cursorLineDown
 } = require("@codemirror/commands");
+const {
+    cursorGroupForward,
+    cursorGroupBackward,
+    deleteGroupForward,
+    deleteGroupBackward
+} = require("@codemirror/commands");
 
 module.exports = class EmacsLitePlugin extends Plugin {
     onload() {
@@ -79,8 +85,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	
 	// Ctrl+F: 右へ1文字移動
 	this.addCommand({
-	    id: "move-char-right",
-	    name: "Move character right",
+	    id: "cursor-forward",
+	    name: "Move cursor forward by character",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "f" }],
 	    editorCallback: (editor) => {
 		const offset = editor.posToOffset(editor.getCursor());
@@ -96,8 +102,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	
 	// Ctrl+B: 左へ1文字移動
 	this.addCommand({
-	    id: "move-char-left",
-	    name: "Move character left",
+	    id: "cursor-backward",
+	    name: "Move cursor backward by character",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "b" }],
 	    editorCallback: (editor) => {
 		const offset = editor.posToOffset(editor.getCursor());
@@ -165,8 +171,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	
         // Ctrl+D: 右側の文字を削除
 	this.addCommand({
-            id: "delete-char-right",
-            name: "Delete character right",
+            id: "delete-char-forward",
+            name: "Delete character forward",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "d" }],
             editorCallback: (editor) => {
                 const selection = editor.getSelection();
@@ -202,8 +208,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	// Ctrl+H: 左側の文字を削除
 	this.addCommand({
-	    id: "delete-char-left",
-	    name: "Delete character left",
+	    id: "delete-char-backward",
+	    name: "Delete character backward",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "h" }],
 	    editorCallback: (editor) => {
 		const selection = editor.getSelection();
@@ -237,6 +243,15 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 
+	//Alt+F: 右へ1単語分移動
+	this.addCommand({
+	    id: "cursor-word-forward",
+	    name: "Move cursor forward by word",
+	    editorCallback: (editor) => {
+		return cursorGroupForward(editor.cm);
+	    }
+	});
+	
 	// Ctrl+Z: Undo
 	this.addCommand({
 	    id: "undo",
