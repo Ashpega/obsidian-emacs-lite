@@ -479,58 +479,12 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 
-
 	// Alt+F: Move cursor forward by chunk
 	this.addCommand({
 	    id: "cursor-chunk-forward",
 	    name: "Move cursor forward by chunk",
 	    hotkeys: [{ modifiers: ["Alt"], key: "f" }],
-	    editorCallback: (editor) => {
-		const cursor = editor.getCursor();
-
-		function moveForwardOne(pos) {
-		    const lineText = editor.getLine(pos.line);
-
-		    // 同じ論理行内で1文字進む
-		    if (pos.ch < lineText.length) {
-			return { line: pos.line, ch: pos.ch + 1 };
-		    }
-
-		    // 次の論理行へ
-		    if (pos.line < editor.lineCount() - 1) {
-			return { line: pos.line + 1, ch: 0 };
-		    }
-
-		    // 文書末尾
-		    return pos;
-		}
-
-		let pos = { line: cursor.line, ch: cursor.ch };
-
-		for (let i = 0; i < 1000; i++) {
-		    const lineText = editor.getLine(pos.line);
-		    const newCh = findWordForwardBoundary(lineText, pos.ch);
-
-		    // 同じ論理行内で前進できた
-		    if (newCh > pos.ch) {
-			editor.setCursor({ line: pos.line, ch: newCh });
-			return true;
-		    }
-
-		    // 前進できないなら1文字先へ進めて再試行
-		    const nextPos = moveForwardOne(pos);
-
-		    // もう進めない
-		    if (nextPos.line === pos.line && nextPos.ch === pos.ch) {
-			editor.setCursor(pos);
-			return true;
-		    }
-
-		    pos = nextPos;
-		}
-
-		return true;
-	    }
+	    editorCallback: (editor) => this.moveChunkForward(editor),
 	});
 
 	// Alt+B: Move cursor backward by chunk
@@ -538,48 +492,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    id: "cursor-chunk-backward",
 	    name: "Move cursor backward by chunk",
 	    hotkeys: [{ modifiers: ["Alt"], key: "b" }],
-	    editorCallback: (editor) => {
-		const cursor = editor.getCursor();
-
-		function moveBackwardOne(pos) {
-		    if (pos.ch > 0) {
-			return { line: pos.line, ch: pos.ch - 1 };
-		    }
-
-		    if (pos.line > 0) {
-			const prevLine = pos.line - 1;
-			return { line: prevLine, ch: editor.getLine(prevLine).length };
-		    }
-
-		    return pos;
-		}
-
-		let pos = { line: cursor.line, ch: cursor.ch };
-
-		for (let i = 0; i < 1000; i++) {
-		    const lineText = editor.getLine(pos.line);
-		    const newCh = findWordBackwardBoundary(lineText, pos.ch);
-
-		    // 同じ行の中で後退できた
-		    if (newCh < pos.ch) {
-			editor.setCursor({ line: pos.line, ch: newCh });
-			return true;
-		    }
-
-		    // 後退できないなら1文字前へ移動して再試行
-		    const prevPos = moveBackwardOne(pos);
-
-		    // もう戻れない
-		    if (prevPos.line === pos.line && prevPos.ch === pos.ch) {
-			editor.setCursor(pos);
-			return true;
-		    }
-
-		    pos = prevPos;
-		}
-
-		return true;
-	    }
+	    editorCallback: (editor) => this.moveChunkBackward(editor),
 	});
 
 	// Alt+D: delete forward by 1 chunk
@@ -587,121 +500,16 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    id: "delete-chunk-forward",
 	    name: "Delete chunk forward",
 	    hotkeys: [{ modifiers: ["Alt"], key: "d" }],
-	    editorCallback: (editor) => {
-		const cursor = editor.getCursor();
-		const from = { line: cursor.line, ch: cursor.ch };
-
-		function moveForwardOne(pos) {
-		    const lineText = editor.getLine(pos.line);
-
-		    // 同じ論理行内で1文字進む
-		    if (pos.ch < lineText.length) {
-			return { line: pos.line, ch: pos.ch + 1 };
-		    }
-
-		    // 次の論理行へ
-		    if (pos.line < editor.lineCount() - 1) {
-			return { line: pos.line + 1, ch: 0 };
-		    }
-
-		    // 文書末尾
-		    return pos;
-		}
-
-		let pos = { line: cursor.line, ch: cursor.ch };
-		let to = pos;
-
-		for (let i = 0; i < 1000; i++) {
-		    const lineText = editor.getLine(pos.line);
-		    const newCh = findWordForwardBoundary(lineText, pos.ch);
-
-		    // 同じ行の中で前進できた
-		    if (newCh > pos.ch) {
-			to = { line: pos.line, ch: newCh };
-			break;
-		    }
-
-		    // 前進できないなら1文字先へ進めて再試行
-		    const nextPos = moveForwardOne(pos);
-
-		    // もう進めない
-		    if (nextPos.line === pos.line && nextPos.ch === pos.ch) {
-			to = pos;
-			break;
-		    }
-
-		    pos = nextPos;
-		}
-
-		// 何も削除できないなら終了
-		if (to.line === from.line && to.ch === from.ch) {
-		    return true;
-		}
-
-		editor.replaceRange("", from, to);
-		editor.setCursor(from);
-		return true;
-	    }
+	    editorCallback: (editor) => this.deleteChunkForward(editor),
 	});
 
-	// Alt+H: delete backward by 1 chunk	
+	// Alt+H: delete backward by 1 chunk
 	this.addCommand({
 	    id: "delete-chunk-backward",
 	    name: "Delete chunk backward",
 	    hotkeys: [{ modifiers: ["Alt"], key: "h" }],
-	    editorCallback: (editor) => {
-		const cursor = editor.getCursor();
-		const to = { line: cursor.line, ch: cursor.ch };
-
-		function moveBackwardOne(pos) {
-		    if (pos.ch > 0) {
-			return { line: pos.line, ch: pos.ch - 1 };
-		    }
-
-		    if (pos.line > 0) {
-			const prevLine = pos.line - 1;
-			return { line: prevLine, ch: editor.getLine(prevLine).length };
-		    }
-
-		    return pos;
-		}
-
-		let pos = { line: cursor.line, ch: cursor.ch };
-		let from = pos;
-
-		for (let i = 0; i < 1000; i++) {
-		    const lineText = editor.getLine(pos.line);
-		    const newCh = findWordBackwardBoundary(lineText, pos.ch);
-
-		    // 同じ行の中で後退できた
-		    if (newCh < pos.ch) {
-			from = { line: pos.line, ch: newCh };
-			break;
-		    }
-
-		    // 後退できないなら1文字前へ移動して再試行
-		    const prevPos = moveBackwardOne(pos);
-
-		    // もう戻れない
-		    if (prevPos.line === pos.line && prevPos.ch === pos.ch) {
-			from = pos;
-			break;
-		    }
-
-		    pos = prevPos;
-		}
-
-		// 何も削除できないなら終了
-		if (from.line === to.line && from.ch === to.ch) {
-		    return true;
-		}
-
-		editor.replaceRange("", from, to);
-		editor.setCursor(from);
-		return true;
-	    }
+	    editorCallback: (editor) => this.deleteChunkBackward(editor),
 	});
-
 	
 	// Ctrl+Z: Undo
 	this.addCommand({
@@ -1018,6 +826,188 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	// Obsidian内部のCM6 EditorView
 	return view.editor?.cm ?? null;
+    }
+
+    // Alt+F Method
+    moveChunkForward(editor) {
+	const cursor = editor.getCursor();
+
+	function moveForwardOne(pos) {
+	    const lineText = editor.getLine(pos.line);
+
+	    if (pos.ch < lineText.length) {
+		return { line: pos.line, ch: pos.ch + 1 };
+	    }
+
+	    if (pos.line < editor.lineCount() - 1) {
+		return { line: pos.line + 1, ch: 0 };
+	    }
+
+	    return pos;
+	}
+
+	let pos = { line: cursor.line, ch: cursor.ch };
+
+	for (let i = 0; i < 1000; i++) {
+	    const lineText = editor.getLine(pos.line);
+	    const newCh = findWordForwardBoundary(lineText, pos.ch);
+
+	    if (newCh > pos.ch) {
+		editor.setCursor({ line: pos.line, ch: newCh });
+		return true;
+	    }
+
+	    const nextPos = moveForwardOne(pos);
+
+	    if (nextPos.line === pos.line && nextPos.ch === pos.ch) {
+		editor.setCursor(pos);
+		return true;
+	    }
+
+	    pos = nextPos;
+	}
+
+	return true;
+    }
+
+    // Alt+B Method
+    moveChunkBackward(editor) {
+	const cursor = editor.getCursor();
+
+	function moveBackwardOne(pos) {
+	    if (pos.ch > 0) {
+		return { line: pos.line, ch: pos.ch - 1 };
+	    }
+
+	    if (pos.line > 0) {
+		const prevLine = pos.line - 1;
+		return { line: prevLine, ch: editor.getLine(prevLine).length };
+	    }
+
+	    return pos;
+	}
+
+	let pos = { line: cursor.line, ch: cursor.ch };
+
+	for (let i = 0; i < 1000; i++) {
+	    const lineText = editor.getLine(pos.line);
+	    const newCh = findWordBackwardBoundary(lineText, pos.ch);
+
+	    if (newCh < pos.ch) {
+		editor.setCursor({ line: pos.line, ch: newCh });
+		return true;
+	    }
+
+	    const prevPos = moveBackwardOne(pos);
+
+	    if (prevPos.line === pos.line && prevPos.ch === pos.ch) {
+		editor.setCursor(pos);
+		return true;
+	    }
+
+	    pos = prevPos;
+	}
+
+	return true;
+    }
+
+    // Alt+D Method
+    deleteChunkForward(editor) {
+	const cursor = editor.getCursor();
+	const from = { line: cursor.line, ch: cursor.ch };
+
+	function moveForwardOne(pos) {
+	    const lineText = editor.getLine(pos.line);
+
+	    if (pos.ch < lineText.length) {
+		return { line: pos.line, ch: pos.ch + 1 };
+	    }
+
+	    if (pos.line < editor.lineCount() - 1) {
+		return { line: pos.line + 1, ch: 0 };
+	    }
+
+	    return pos;
+	}
+
+	let pos = { line: cursor.line, ch: cursor.ch };
+	let to = pos;
+
+	for (let i = 0; i < 1000; i++) {
+	    const lineText = editor.getLine(pos.line);
+	    const newCh = findWordForwardBoundary(lineText, pos.ch);
+
+	    if (newCh > pos.ch) {
+		to = { line: pos.line, ch: newCh };
+		break;
+	    }
+
+	    const nextPos = moveForwardOne(pos);
+
+	    if (nextPos.line === pos.line && nextPos.ch === pos.ch) {
+		to = pos;
+		break;
+	    }
+
+	    pos = nextPos;
+	}
+
+	if (to.line === from.line && to.ch === from.ch) {
+	    return true;
+	}
+
+	editor.replaceRange("", from, to);
+	editor.setCursor(from);
+	return true;
+    }
+
+    // Alt+H method
+    deleteChunkBackward(editor) {
+	const cursor = editor.getCursor();
+	const to = { line: cursor.line, ch: cursor.ch };
+
+	function moveBackwardOne(pos) {
+	    if (pos.ch > 0) {
+		return { line: pos.line, ch: pos.ch - 1 };
+	    }
+
+	    if (pos.line > 0) {
+		const prevLine = pos.line - 1;
+		return { line: prevLine, ch: editor.getLine(prevLine).length };
+	    }
+
+	    return pos;
+	}
+
+	let pos = { line: cursor.line, ch: cursor.ch };
+	let from = pos;
+
+	for (let i = 0; i < 1000; i++) {
+	    const lineText = editor.getLine(pos.line);
+	    const newCh = findWordBackwardBoundary(lineText, pos.ch);
+
+	    if (newCh < pos.ch) {
+		from = { line: pos.line, ch: newCh };
+		break;
+	    }
+
+	    const prevPos = moveBackwardOne(pos);
+
+	    if (prevPos.line === pos.line && prevPos.ch === pos.ch) {
+		from = pos;
+		break;
+	    }
+
+	    pos = prevPos;
+	}
+
+	if (from.line === to.line && from.ch === to.ch) {
+	    return true;
+	}
+
+	editor.replaceRange("", from, to);
+	editor.setCursor(from);
+	return true;
     }
 
 };
