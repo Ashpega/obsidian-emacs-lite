@@ -324,16 +324,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    id: "cursor-forward",
 	    name: "Move cursor forward by character",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "f" }],
-	    editorCallback: (editor) => {
-		const offset = editor.posToOffset(editor.getCursor());
-		const newPos = editor.offsetToPos(offset + 1);
-
-		editor.setCursor(newPos);
-
-		if (this.markActive) {
-		    this.syncMarkSelection(editor);
-		}
-	    },
+	    editorCallback: (editor) => this.moveCharForward(editor),
 	});
 	
 	// Ctrl+B: 左へ1文字移動
@@ -341,17 +332,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    id: "cursor-backward",
 	    name: "Move cursor backward by character",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "b" }],
-	    editorCallback: (editor) => {
-		const offset = editor.posToOffset(editor.getCursor());
-		const newOffset = Math.max(offset - 1, 0);
-		const newPos = editor.offsetToPos(newOffset);
-
-		editor.setCursor(newPos);
-
-		if (this.markActive) {
-		    this.syncMarkSelection(editor);
-		}
-	    },
+	    editorCallback: (editor) => this.moveCharBackward(editor),
 	});
 
 	// Ctrl+N: visual line で1行下へ移動
@@ -359,25 +340,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    id: "move-visual-line-down",
 	    name: "Move visual line down",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "n" }],
-	    editorCallback: (editor) => {
-		const cm = this.getEditorView();
-
-		if (cm) {
-		    cursorLineDown(cm);
-		} else {
-		    // fallback: 論理行ベース
-		    const cursor = editor.getCursor();
-		    const maxLine = editor.lastLine();
-		    const newLine = Math.min(cursor.line + 1, maxLine);
-		    const lineLength = editor.getLine(newLine).length;
-		    const newCh = Math.min(cursor.ch, lineLength);
-		    editor.setCursor({ line: newLine, ch: newCh });
-		}
-
-		if (this.markActive) {
-		    this.syncMarkSelection(editor);
-		}
-	    },
+	    editorCallback: (editor) => this.moveLineDown(editor),
 	});
 
 	// Ctrl+P: visual line で1行上へ移動
@@ -385,24 +348,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    id: "move-visual-line-up",
 	    name: "Move visual line up",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "p" }],
-	    editorCallback: (editor) => {
-		const cm = this.getEditorView();
-
-		if (cm) {
-		    cursorLineUp(cm);
-		} else {
-		    // fallback: 論理行ベース
-		    const cursor = editor.getCursor();
-		    const newLine = Math.max(cursor.line - 1, 0);
-		    const lineLength = editor.getLine(newLine).length;
-		    const newCh = Math.min(cursor.ch, lineLength);
-		    editor.setCursor({ line: newLine, ch: newCh });
-		}
-
-		if (this.markActive) {
-		    this.syncMarkSelection(editor);
-		}
-	    },
+	    editorCallback: (editor) => this.moveLineUp(editor),
 	});
 	
         // Ctrl+D: 右側の文字を削除
@@ -410,36 +356,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
             id: "delete-char-forward",
             name: "Delete character forward",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "d" }],
-            editorCallback: (editor) => {
-                const selection = editor.getSelection();
-
-                // 選択範囲がある場合は、その範囲を削除
-                if (selection && selection.length > 0) {
-                    editor.replaceSelection("");
-                    return;
-                }
-
-                const cursor = editor.getCursor();
-                const line = editor.getLine(cursor.line);
-
-                // 行末で、かつ最終行でもある場合は何もしない
-                const isEndOfLine = cursor.ch >= line.length;
-                const isLastLine = cursor.line >= editor.lineCount() - 1;
-
-                if (isEndOfLine && isLastLine) {
-                    return;
-                }
-
-                // 通常ケース:
-                // - 行中なら右1文字削除
-                // - 行末なら次行との改行を削除（Emacs/Ctrl-d風）
-                const from = { line: cursor.line, ch: cursor.ch };
-                const to = isEndOfLine
-                    ? { line: cursor.line + 1, ch: 0 }
-                    : { line: cursor.line, ch: cursor.ch + 1 };
-
-                editor.replaceRange("", from, to);
-            },
+            editorCallback: (editor) => this.deleteCharForward(editor),
         });
 
 	// Ctrl+H: 左側の文字を削除
@@ -447,36 +364,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    id: "delete-char-backward",
 	    name: "Delete character backward",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "h" }],
-	    editorCallback: (editor) => {
-		const selection = editor.getSelection();
-
-		// 選択範囲がある場合は、その範囲を削除
-		if (selection && selection.length > 0) {
-		    editor.replaceSelection("");
-		    return;
-		}
-
-		const cursor = editor.getCursor();
-
-		// 文書先頭なら何もしない
-		const isStartOfLine = cursor.ch === 0;
-		const isFirstLine = cursor.line === 0;
-
-		if (isStartOfLine && isFirstLine) {
-		    return;
-		}
-
-		// 通常ケース:
-		// - 行中なら左1文字削除
-		// - 行頭なら前行との改行を削除（Emacs/Ctrl-h風というより Backspace 風）
-		const from = isStartOfLine
-		      ? { line: cursor.line - 1, ch: editor.getLine(cursor.line - 1).length }
-		      : { line: cursor.line, ch: cursor.ch - 1 };
-
-		const to = { line: cursor.line, ch: cursor.ch };
-
-		editor.replaceRange("", from, to);
-	    },
+	    editorCallback: (editor) => this.deleteChunkBackward(editor),
 	});
 
 	// Alt+F: Move cursor forward by chunk
@@ -539,44 +427,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    id: "kill-to-end-of-line",
 	    name: "Kill to end of line",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "k" }],
-	    editorCallback: (editor) => {
-		const selection = editor.getSelection();
-
-		// 選択範囲がある場合は、その範囲を削除してコピー
-		if (selection && selection.length > 0) {
-		    clipboard.writeText(selection);
-		    editor.replaceSelection("");
-		    return;
-		}
-
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-		const isEndOfLine = cursor.ch >= lineText.length;
-		const isLastLine = cursor.line >= editor.lineCount() - 1;
-
-		// 最終行末尾なら何もしない
-		if (isEndOfLine && isLastLine) {
-		    return;
-		}
-
-		let killedText = "";
-		let from = { line: cursor.line, ch: cursor.ch };
-		let to;
-
-		if (isEndOfLine) {
-		    // 行末なら改行を削除（次行と結合）
-		    killedText = "\n";
-		    to = { line: cursor.line + 1, ch: 0 };
-		} else {
-		    // 行の途中ならカーソル位置から行末まで削除
-		    killedText = lineText.slice(cursor.ch);
-		    to = { line: cursor.line, ch: lineText.length };
-		}
-		
-		this.lastYankText = killedText;
-		clipboard.writeText(killedText);
-		editor.replaceRange("", from, to);
-	    },
+	    editorCallback: (editor) => this.killLine(editor),
 	});
 	
 	// Ctrl+W: 選択範囲をコピーして削除
@@ -828,6 +679,189 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return view.editor?.cm ?? null;
     }
 
+    // Ctrl+F Method
+    moveCharForward(editor) {
+	const offset = editor.posToOffset(editor.getCursor());
+	const newPos = editor.offsetToPos(offset + 1);
+
+	editor.setCursor(newPos);
+
+	if (this.markActive) {
+	    this.syncMarkSelection(editor);
+	}
+	return true;
+    }
+
+    // Ctrl+B Method
+    moveCharBackward(editor) {
+	const offset = editor.posToOffset(editor.getCursor());
+	const newOffset = Math.max(offset - 1, 0);
+	const newPos = editor.offsetToPos(newOffset);
+
+	editor.setCursor(newPos);
+
+	if (this.markActive) {
+	    this.syncMarkSelection(editor);
+	}
+
+	return true;
+    }
+
+    // Ctrl+P Method
+    moveLineUp(editor) {
+	const cm = this.getEditorView();
+
+	if (cm) {
+	    cursorLineUp(cm);
+	} else {
+	    // fallback: 論理行ベース
+	    const cursor = editor.getCursor();
+	    const newLine = Math.max(cursor.line - 1, 0);
+	    const lineLength = editor.getLine(newLine).length;
+	    const newCh = Math.min(cursor.ch, lineLength);
+	    editor.setCursor({ line: newLine, ch: newCh });
+	}
+
+	if (this.markActive) {
+	    this.syncMarkSelection(editor);
+	}
+	return true;
+    }
+
+    // Ctrl+N Method
+    moveLineDown(editor) {
+	const cm = this.getEditorView();
+
+	if (cm) {
+	    cursorLineDown(cm);
+	} else {
+	    // fallback: 論理行ベース
+	    const cursor = editor.getCursor();
+	    const maxLine = editor.lastLine();
+	    const newLine = Math.min(cursor.line + 1, maxLine);
+	    const lineLength = editor.getLine(newLine).length;
+	    const newCh = Math.min(cursor.ch, lineLength);
+	    editor.setCursor({ line: newLine, ch: newCh });
+	}
+
+	if (this.markActive) {
+	    this.syncMarkSelection(editor);
+	}
+
+	return true;
+    }
+
+    // Ctrl+D Method
+    deleteCharForward(editor) {
+        const selection = editor.getSelection();
+
+        // 選択範囲がある場合は、その範囲を削除
+        if (selection && selection.length > 0) {
+            editor.replaceSelection("");
+            return;
+        }
+
+        const cursor = editor.getCursor();
+        const line = editor.getLine(cursor.line);
+
+        // 行末で、かつ最終行でもある場合は何もしない
+        const isEndOfLine = cursor.ch >= line.length;
+        const isLastLine = cursor.line >= editor.lineCount() - 1;
+
+        if (isEndOfLine && isLastLine) {
+            return;
+        }
+
+        // 通常ケース:
+        // - 行中なら右1文字削除
+        // - 行末なら次行との改行を削除（Emacs/Ctrl-d風）
+        const from = { line: cursor.line, ch: cursor.ch };
+        const to = isEndOfLine
+              ? { line: cursor.line + 1, ch: 0 }
+              : { line: cursor.line, ch: cursor.ch + 1 };
+
+        editor.replaceRange("", from, to);
+
+	return true;
+    }
+
+    // Ctrl+H Method  
+    deleteCharBackward(editor) {
+	const selection = editor.getSelection();
+
+	// 選択範囲がある場合は、その範囲を削除
+	if (selection && selection.length > 0) {
+	    editor.replaceSelection("");
+	    return;
+	}
+
+	const cursor = editor.getCursor();
+
+	// 文書先頭なら何もしない
+	const isStartOfLine = cursor.ch === 0;
+	const isFirstLine = cursor.line === 0;
+
+	if (isStartOfLine && isFirstLine) {
+	    return;
+	}
+
+	// 通常ケース:
+	// - 行中なら左1文字削除
+	// - 行頭なら前行との改行を削除（Emacs/Ctrl-h風というより Backspace 風）
+	const from = isStartOfLine
+	      ? { line: cursor.line - 1, ch: editor.getLine(cursor.line - 1).length }
+	      : { line: cursor.line, ch: cursor.ch - 1 };
+
+	const to = { line: cursor.line, ch: cursor.ch };
+
+	editor.replaceRange("", from, to);
+
+	return true;
+    }
+
+
+    // Ctrl+K Method
+    killLine(editor) {
+	const selection = editor.getSelection();
+
+	// 選択範囲がある場合は、その範囲を削除してコピー
+	if (selection && selection.length > 0) {
+	    clipboard.writeText(selection);
+	    editor.replaceSelection("");
+	    return;
+	}
+
+	const cursor = editor.getCursor();
+	const lineText = editor.getLine(cursor.line);
+	const isEndOfLine = cursor.ch >= lineText.length;
+	const isLastLine = cursor.line >= editor.lineCount() - 1;
+
+	// 最終行末尾なら何もしない
+	if (isEndOfLine && isLastLine) {
+	    return;
+	}
+
+	let killedText = "";
+	let from = { line: cursor.line, ch: cursor.ch };
+	let to;
+
+	if (isEndOfLine) {
+	    // 行末なら改行を削除（次行と結合）
+	    killedText = "\n";
+	    to = { line: cursor.line + 1, ch: 0 };
+	} else {
+	    // 行の途中ならカーソル位置から行末まで削除
+	    killedText = lineText.slice(cursor.ch);
+	    to = { line: cursor.line, ch: lineText.length };
+	}
+	
+	this.lastYankText = killedText;
+	clipboard.writeText(killedText);
+	editor.replaceRange("", from, to);
+
+	return true;
+    }
+    
     // Alt+F Method
     moveChunkForward(editor) {
 	const cursor = editor.getCursor();
