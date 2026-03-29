@@ -349,7 +349,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
             id: "delete-char-forward",
             name: "Delete character forward",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "d" }],
+//	    hotkeys: [{ modifiers: ["Ctrl"], key: "d" }],
             editorCallback: (editor) => this.deleteCharForward(editor),
         });
 
@@ -357,8 +357,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "delete-char-backward",
 	    name: "Delete character backward",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "h" }],
-	    editorCallback: (editor) => this.deleteChunkBackward(editor),
+//	    hotkeys: [{ modifiers: ["Ctrl"], key: "h" }],
+	    editorCallback: (editor) => this.deleteCharBackward(editor),
 	});
 
 	// Alt+F: Move cursor forward by chunk
@@ -673,6 +673,22 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			preventDefault: true,
 			run: () => {
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:move-visual-line-down");
+			    return true;
+			},
+		    },
+		    {
+			key: "Ctrl-d",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:delete-char-forward");
+			    return true;
+			},
+		    },
+		    {
+			key: "Ctrl-h",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:delete-char-backward");
 			    return true;
 			},
 		    },
