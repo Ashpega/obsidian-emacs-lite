@@ -14,7 +14,7 @@ const {
     deleteGroupForward,
     deleteGroupBackward
 } = require("@codemirror/commands");
-
+const { EditorSelection } = require("@codemirror/state");
 
 /*
   日本語文章に対するAlt+F/B/D/H で必要となるediting chunk関連の関数群
@@ -258,7 +258,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.markActive = false;
 	this.markAnchor = null;
 
-	// Ctrl+M: Return / Enter
+	
+	// Ctrl+M: Return.  Enter.
 	this.addCommand({
 	    id: "insert-newline",
 	    name: "Insert newline",
@@ -302,22 +303,15 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    name: "Move to visual line end",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "e" }],
 	    editorCallback: (editor) => {
-		const cm = this.getEditorView();
-
-		if (cm) {
-		    cursorLineBoundaryForward(cm);
-		} else {
-		    // fallback: 論理行末
-		    const cursor = editor.getCursor();
-		    const lineText = editor.getLine(cursor.line);
-		    editor.setCursor({ line: cursor.line, ch: lineText.length });
-		}
+		const to = this.getVisualLineEnd(editor);
+		editor.setCursor(to);
 
 		if (this.markActive) {
 		    this.syncMarkSelection(editor);
 		}
 	    },
 	});
+
 	
 	// Ctrl+F: 右へ1文字移動
 	this.addCommand({
@@ -648,36 +642,56 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 
 	this.registerEditorExtension(
-	    keymap.of([
-		{
-		    key: "Ctrl-f",
-		    preventDefault: true,
-		    run: () => {
-			this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-forward");
-			return true;
+	    Prec.high(
+		keymap.of([
+		    {
+			key: "Ctrl-f",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-forward");
+			    return true;
+			},
 		    },
-		},
-		{
-		    key: "Alt-f",
-		    preventDefault: true,
-		    run: () => {
-			this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-chunk-forward");
-			return true;
+		    {
+			key: "Alt-f",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-chunk-forward");
+			    return true;
+			},
 		    },
-		},
-		{
-		    key: "Ctrl-k",
-		    preventDefault: true,
-		    run: () => {
-			this.app.commands.executeCommandById("obsidian-emacs-lite:kill-to-end-of-line");
-			return true;
+		    {
+			key: "Ctrl-k",
+			preventDefault: true,
+			run: () => {
+			    const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			    if (!mdView) return false;
+			    this.killLine(mdView.editor);
+			    return true;
+			},
 		    },
-		},
-	    ])
+		])
+	    )
 	);
-	
     }
 
+    getVisualLineEnd(editor) {
+	const cm = this.getEditorView();
+
+	if (cm) {
+            const before = editor.getCursor();
+            cursorLineBoundaryForward(cm);
+            const after = editor.getCursor();
+            editor.setCursor(before);
+            return after;
+	}
+
+	// fallback: logical line end
+	const cursor = editor.getCursor();
+	const lineText = editor.getLine(cursor.line);
+	return { line: cursor.line, ch: lineText.length };
+    }
+    
     getActiveEditor() {
 	const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 	return view ? view.editor : null;
@@ -856,42 +870,119 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	// 選択範囲がある場合は、その範囲を削除してコピー
 	if (selection && selection.length > 0) {
-	    clipboard.writeText(selection);
-	    editor.replaceSelection("");
-	    return;
+            this.lastYankText = selection;
+            clipboard.writeText(selection);
+            editor.replaceSelection("");
+            return true;
 	}
 
-	const cursor = editor.getCursor();
-	const lineText = editor.getLine(cursor.line);
-	const isEndOfLine = cursor.ch >= lineText.length;
-	const isLastLine = cursor.line >= editor.lineCount() - 1;
+	const from = editor.getCursor();
+	const visualEnd = this.getVisualLineEnd(editor);
 
-	// 最終行末尾なら何もしない
-	if (isEndOfLine && isLastLine) {
-	    return;
+	const samePos =
+              from.line === visualEnd.line && from.ch === visualEnd.ch;
+
+	// すでに visual line end にいる場合
+	if (samePos) {
+            const lineText = editor.getLine(from.line);
+            const isLogicalEnd = from.ch >= lineText.length;
+            const isLastLine = from.line >= editor.lineCount() - 1;
+
+            // logical line end なら改行を削除して次行と結合
+            if (isLogicalEnd && !isLastLine) {
+		editor.replaceRange(
+                    "",
+                    { line: from.line, ch: from.ch },
+                    { line: from.line + 1, ch: 0 }
+		);
+            }
+
+            return true;
 	}
 
-	let killedText = "";
-	let from = { line: cursor.line, ch: cursor.ch };
-	let to;
+	// visual line end までの本文を取得
+	const killedText = editor.getRange(from, visualEnd);
 
-	if (isEndOfLine) {
-	    // 行末なら改行を削除（次行と結合）
-	    killedText = "\n";
-	    to = { line: cursor.line + 1, ch: 0 };
-	} else {
-	    // 行の途中ならカーソル位置から行末まで削除
-	    killedText = lineText.slice(cursor.ch);
-	    to = { line: cursor.line, ch: lineText.length };
+	// visualEnd が logical line end に達していれば改行も一緒に削除
+	const endLineText = editor.getLine(visualEnd.line);
+	const reachedLogicalEnd = visualEnd.ch >= endLineText.length;
+	const isLastLine = visualEnd.line >= editor.lineCount() - 1;
+
+	let deleteTo = visualEnd;
+	if (reachedLogicalEnd && !isLastLine) {
+            deleteTo = { line: visualEnd.line + 1, ch: 0 };
 	}
-	
-	this.lastYankText = killedText;
-	clipboard.writeText(killedText);
-	editor.replaceRange("", from, to);
+
+	if (killedText.length > 0) {
+            this.lastYankText = killedText;
+            clipboard.writeText(killedText);
+	}
+
+	editor.replaceRange("", from, deleteTo);
+	editor.setCursor(from);
 
 	return true;
     }
     
+/*
+    // Ctrl+K Method (visual line based)
+    killLine(editor) {
+	console.log("killLine called");
+	const selection = editor.getSelection();
+
+	// 選択範囲がある場合は、その範囲を削除してコピー
+	if (selection && selection.length > 0) {
+            this.lastYankText = selection;
+            clipboard.writeText(selection);
+            editor.replaceSelection("");
+            return true;
+	}
+
+	const view = this.getEditorView();
+	if (!view) return false;
+
+	const state = view.state;
+	const from = state.selection.main.head;
+
+	// visual line boundary へ進む（includeWrap = true）
+	let to = view.moveToLineBoundary(
+            EditorSelection.cursor(from),
+            true,
+            true
+	).head;
+
+	// すでに boundary にいる場合：
+	// - まだ文書末尾でなければ改行を1文字削除
+	// - 末尾なら何もしない
+	if (to <= from) {
+            if (from < state.doc.length) {
+		view.dispatch({
+                    changes: { from, to: from + 1, insert: "" },
+                    selection: EditorSelection.cursor(from),
+                    scrollIntoView: true,
+                    userEvent: "delete"
+		});
+            }
+            return true;
+	}
+
+	const killedText = state.sliceDoc(from, to);
+
+	if (killedText.length > 0) {
+            this.lastYankText = killedText;
+            clipboard.writeText(killedText);
+	}
+
+	view.dispatch({
+            changes: { from, to, insert: "" },
+            selection: EditorSelection.cursor(from),
+            scrollIntoView: true,
+            userEvent: "delete"
+	});
+
+	return true;
+    }
+*/  
     // Alt+F Method
     moveChunkForward(editor) {
 	const cursor = editor.getCursor();
