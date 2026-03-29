@@ -323,7 +323,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "cursor-forward",
 	    name: "Move cursor forward by character",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "f" }],
+//	    hotkeys: [{ modifiers: ["Ctrl"], key: "f" }],
 	    editorCallback: (editor) => this.moveCharForward(editor),
 	});
 	
@@ -371,7 +371,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "cursor-chunk-forward",
 	    name: "Move cursor forward by chunk",
-	    hotkeys: [{ modifiers: ["Alt"], key: "f" }],
+//	    hotkeys: [{ modifiers: ["Alt"], key: "f" }],
 	    editorCallback: (editor) => this.moveChunkForward(editor),
 	});
 
@@ -426,7 +426,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "kill-to-end-of-line",
 	    name: "Kill to end of line",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "k" }],
+//	    hotkeys: [{ modifiers: ["Ctrl"], key: "k" }],
 	    editorCallback: (editor) => this.killLine(editor),
 	});
 	
@@ -645,6 +645,36 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	    this.syncMarkSelection(editor);
 	});
+
+
+	this.registerEditorExtension(
+	    keymap.of([
+		{
+		    key: "Ctrl-f",
+		    preventDefault: true,
+		    run: () => {
+			this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-forward");
+			return true;
+		    },
+		},
+		{
+		    key: "Alt-f",
+		    preventDefault: true,
+		    run: () => {
+			this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-chunk-forward");
+			return true;
+		    },
+		},
+		{
+		    key: "Ctrl-k",
+		    preventDefault: true,
+		    run: () => {
+			this.app.commands.executeCommandById("obsidian-emacs-lite:kill-to-end-of-line");
+			return true;
+		    },
+		},
+	    ])
+	);
 	
     }
 
