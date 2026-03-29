@@ -381,7 +381,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "delete-chunk-forward",
 	    name: "Delete chunk forward",
-	    hotkeys: [{ modifiers: ["Alt"], key: "d" }],
+//	    hotkeys: [{ modifiers: ["Alt"], key: "d" }],
 	    editorCallback: (editor) => this.deleteChunkForward(editor),
 	});
 
@@ -389,7 +389,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "delete-chunk-backward",
 	    name: "Delete chunk backward",
-	    hotkeys: [{ modifiers: ["Alt"], key: "h" }],
+//	    hotkeys: [{ modifiers: ["Alt"], key: "h" }],
 	    editorCallback: (editor) => this.deleteChunkBackward(editor),
 	});
 	
@@ -705,6 +705,22 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			preventDefault: true,
 			run: () => {
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-chunk-backward");
+			    return true;
+			},
+		    },
+		    {
+			key: "Alt-d",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:delete-chunk-forward");
+			    return true;
+			},
+		    },
+		    {
+			key: "Alt-h",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:delete-chunk-backward");
 			    return true;
 			},
 		    },
