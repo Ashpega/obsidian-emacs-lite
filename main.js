@@ -373,7 +373,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "cursor-chunk-backward",
 	    name: "Move cursor backward by chunk",
-	    hotkeys: [{ modifiers: ["Alt"], key: "b" }],
+//	    hotkeys: [{ modifiers: ["Alt"], key: "b" }],
 	    editorCallback: (editor) => this.moveChunkBackward(editor),
 	});
 
@@ -697,6 +697,14 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			preventDefault: true,
 			run: () => {
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-chunk-forward");
+			    return true;
+			},
+		    },
+		    {
+			key: "Alt-b",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-chunk-backward");
 			    return true;
 			},
 		    },
