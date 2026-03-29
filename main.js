@@ -325,7 +325,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "cursor-backward",
 	    name: "Move cursor backward by character",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "b" }],
+//	    hotkeys: [{ modifiers: ["Ctrl"], key: "b" }],
 	    editorCallback: (editor) => this.moveCharBackward(editor),
 	});
 
@@ -333,7 +333,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "move-visual-line-down",
 	    name: "Move visual line down",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "n" }],
+//	    hotkeys: [{ modifiers: ["Ctrl"], key: "n" }],
 	    editorCallback: (editor) => this.moveLineDown(editor),
 	});
 
@@ -341,7 +341,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "move-visual-line-up",
 	    name: "Move visual line up",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "p" }],
+//	    hotkeys: [{ modifiers: ["Ctrl"], key: "p" }],
 	    editorCallback: (editor) => this.moveLineUp(editor),
 	});
 	
@@ -649,6 +649,30 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			preventDefault: true,
 			run: () => {
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-forward");
+			    return true;
+			},
+		    },
+		    {
+			key: "Ctrl-b",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-backward");
+			    return true;
+			},
+		    },
+		    {
+			key: "Ctrl-p",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:move-visual-line-up");
+			    return true;
+			},
+		    },
+		    {
+			key: "Ctrl-n",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:move-visual-line-down");
 			    return true;
 			},
 		    },
