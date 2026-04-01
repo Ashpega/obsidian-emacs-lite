@@ -420,9 +420,9 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "kill-to-end-of-line",
 	    name: "Kill to end of line",
-//	    hotkeys: [{ modifiers: ["Ctrl"], key: "k" }],
-	    editorCallback: (editor) => this.killLine(editor),
+	    editorCallback: (editor) => this.killToEndOfLine(editor),
 	});
+
 	
 	// Ctrl+W: 選択範囲をコピーして削除
         this.addCommand({
@@ -728,12 +728,20 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			key: "Ctrl-k",
 			preventDefault: true,
 			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:kill-to-end-of-line");
+			    return true;
+			}
+		    },
+/*		    {
+			key: "Ctrl-k",
+			preventDefault: true,
+			run: () => {
 			    const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
 			    if (!mdView) return false;
 			    this.killLine(mdView.editor);
 			    return true;
 			},
-		    },
+		    },*/
 		])
 	    )
 	);
@@ -929,124 +937,64 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 
     // Ctrl+K Method
-    killLine(editor) {
+    killToEndOfLine(editor) {
+	return this.killToEndOfVisualLine(editor);
+    }
+
+    getRangeToEndOfVisualLine(editor) {
 	const selection = editor.getSelection();
 
-	// 選択範囲がある場合は、その範囲を削除してコピー
 	if (selection && selection.length > 0) {
-            this.lastYankText = selection;
-            clipboard.writeText(selection);
-            editor.replaceSelection("");
-            return true;
+	    const from = editor.getCursor("from");
+	    const to = editor.getCursor("to");
+	    return { from, to, text: selection };
 	}
 
 	const from = editor.getCursor();
 	const visualEnd = this.getVisualLineEnd(editor);
 
-	const samePos =
-              from.line === visualEnd.line && from.ch === visualEnd.ch;
+	const atVisualEnd =
+	      from.line === visualEnd.line && from.ch === visualEnd.ch;
 
-	// すでに visual line end にいる場合
-	if (samePos) {
-            const lineText = editor.getLine(from.line);
-            const isLogicalEnd = from.ch >= lineText.length;
-            const isLastLine = from.line >= editor.lineCount() - 1;
+	const lineText = editor.getLine(from.line);
+	const atLogicalEnd = from.ch >= lineText.length;
+	const isLastLine = from.line >= editor.lineCount() - 1;
 
-            // logical line end なら改行を削除して次行と結合
-            if (isLogicalEnd && !isLastLine) {
-		editor.replaceRange(
-                    "",
-                    { line: from.line, ch: from.ch },
-                    { line: from.line + 1, ch: 0 }
-		);
-            }
+	if (atVisualEnd) {
+	    if (atLogicalEnd && !isLastLine) {
+		const to = { line: from.line + 1, ch: 0 };
+		const text = editor.getRange(from, to);
+		return { from, to, text };
+	    }
 
-            return true;
+	    return { from, to: from, text: "" };
 	}
 
-	// visual line end までの本文を取得
-	const killedText = editor.getRange(from, visualEnd);
+	const to = visualEnd;
+	const text = editor.getRange(from, to);
+	return { from, to, text };
+    }
 
-	// visualEnd が logical line end に達していれば改行も一緒に削除
-	const endLineText = editor.getLine(visualEnd.line);
-	const reachedLogicalEnd = visualEnd.ch >= endLineText.length;
-	const isLastLine = visualEnd.line >= editor.lineCount() - 1;
+    applyKillRange(editor, rangeInfo) {
+	const { from, to, text } = rangeInfo;
 
-	let deleteTo = visualEnd;
-	if (reachedLogicalEnd && !isLastLine) {
-            deleteTo = { line: visualEnd.line + 1, ch: 0 };
-	}
+	if (!text || text.length === 0) return true;
 
-	if (killedText.length > 0) {
-            this.lastYankText = killedText;
-            clipboard.writeText(killedText);
-	}
+	this.lastYankText = text;
+	clipboard.writeText(text);
 
-	editor.replaceRange("", from, deleteTo);
+	editor.replaceRange("", from, to);
 	editor.setCursor(from);
 
 	return true;
     }
-    
-/*
-    // Ctrl+K Method (visual line based)
-    killLine(editor) {
-	console.log("killLine called");
-	const selection = editor.getSelection();
 
-	// 選択範囲がある場合は、その範囲を削除してコピー
-	if (selection && selection.length > 0) {
-            this.lastYankText = selection;
-            clipboard.writeText(selection);
-            editor.replaceSelection("");
-            return true;
-	}
-
-	const view = this.getEditorView();
-	if (!view) return false;
-
-	const state = view.state;
-	const from = state.selection.main.head;
-
-	// visual line boundary へ進む（includeWrap = true）
-	let to = view.moveToLineBoundary(
-            EditorSelection.cursor(from),
-            true,
-            true
-	).head;
-
-	// すでに boundary にいる場合：
-	// - まだ文書末尾でなければ改行を1文字削除
-	// - 末尾なら何もしない
-	if (to <= from) {
-            if (from < state.doc.length) {
-		view.dispatch({
-                    changes: { from, to: from + 1, insert: "" },
-                    selection: EditorSelection.cursor(from),
-                    scrollIntoView: true,
-                    userEvent: "delete"
-		});
-            }
-            return true;
-	}
-
-	const killedText = state.sliceDoc(from, to);
-
-	if (killedText.length > 0) {
-            this.lastYankText = killedText;
-            clipboard.writeText(killedText);
-	}
-
-	view.dispatch({
-            changes: { from, to, insert: "" },
-            selection: EditorSelection.cursor(from),
-            scrollIntoView: true,
-            userEvent: "delete"
-	});
-
-	return true;
+    killToEndOfVisualLine(editor) {
+	const rangeInfo = this.getRangeToEndOfVisualLine(editor);
+	return this.applyKillRange(editor, rangeInfo);
     }
-*/  
+
+    
     // Alt+F Method
     moveChunkForward(editor) {
 	const cursor = editor.getCursor();
