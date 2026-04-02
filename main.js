@@ -861,19 +861,43 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	const cm = this.getEditorView();
 
 	if (cm) {
-	    cursorLineUp(cm);
+	    if (this.markActive && this.markAnchor) {
+		const head = cm.state.selection.main.head;
+
+		// いったん head だけの単独カーソルにする
+		cm.dispatch({
+		    selection: { anchor: head, head: head }
+		});
+
+		cursorLineUp(cm);
+
+		const newHead = cm.state.selection.main.head;
+		const newPos = cm.state.doc.lineAt(newHead);
+
+		editor.setSelection(
+		    { line: this.markAnchor.line, ch: this.markAnchor.ch },
+		    { line: newPos.number - 1, ch: newHead - newPos.from }
+		);
+	    } else {
+		cursorLineUp(cm);
+	    }
 	} else {
 	    // fallback: 論理行ベース
 	    const cursor = editor.getCursor();
 	    const newLine = Math.max(cursor.line - 1, 0);
 	    const lineLength = editor.getLine(newLine).length;
 	    const newCh = Math.min(cursor.ch, lineLength);
-	    editor.setCursor({ line: newLine, ch: newCh });
+
+	    if (this.markActive && this.markAnchor) {
+		editor.setSelection(
+		    { line: this.markAnchor.line, ch: this.markAnchor.ch },
+		    { line: newLine, ch: newCh }
+		);
+	    } else {
+		editor.setCursor({ line: newLine, ch: newCh });
+	    }
 	}
 
-	if (this.markActive) {
-	    this.syncMarkSelection(editor);
-	}
 	return true;
     }
 
@@ -882,24 +906,45 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	const cm = this.getEditorView();
 
 	if (cm) {
-	    cursorLineDown(cm);
+	    if (this.markActive && this.markAnchor) {
+		const head = cm.state.selection.main.head;
+
+		// いったん head だけの単独カーソルにする
+		cm.dispatch({
+		    selection: { anchor: head, head: head }
+		});
+
+		cursorLineDown(cm);
+
+		const newHead = cm.state.selection.main.head;
+		const newPos = cm.state.doc.lineAt(newHead);
+
+		editor.setSelection(
+		    { line: this.markAnchor.line, ch: this.markAnchor.ch },
+		    { line: newPos.number - 1, ch: newHead - newPos.from }
+		);
+	    } else {
+		cursorLineDown(cm);
+	    }
 	} else {
-	    // fallback: 論理行ベース
 	    const cursor = editor.getCursor();
-	    const maxLine = editor.lastLine();
-	    const newLine = Math.min(cursor.line + 1, maxLine);
+	    const newLine = Math.min(cursor.line + 1, editor.lineCount() - 1);
 	    const lineLength = editor.getLine(newLine).length;
 	    const newCh = Math.min(cursor.ch, lineLength);
-	    editor.setCursor({ line: newLine, ch: newCh });
-	}
 
-	if (this.markActive) {
-	    this.syncMarkSelection(editor);
+	    if (this.markActive && this.markAnchor) {
+		editor.setSelection(
+		    { line: this.markAnchor.line, ch: this.markAnchor.ch },
+		    { line: newLine, ch: newCh }
+		);
+	    } else {
+		editor.setCursor({ line: newLine, ch: newCh });
+	    }
 	}
 
 	return true;
     }
-
+    
     // Ctrl+D Method
     deleteCharForward(editor) {
         const selection = editor.getSelection();
