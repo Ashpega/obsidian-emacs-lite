@@ -423,6 +423,13 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    editorCallback: (editor) => this.killToEndOfLine(editor),
 	});
 
+	// Ctrl+;: カーソル一から行末までを選択
+	this.addCommand({
+	    id: "select-to-end-of-line",
+	    name: "Select to end of line",
+	    editorCallback: (editor) => this.selectToEndOfLine(editor),
+	});
+	
 	
 	// Ctrl+W: 選択範囲をコピーして削除
         this.addCommand({
@@ -741,7 +748,15 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			    this.killLine(mdView.editor);
 			    return true;
 			},
-		    },*/
+			},*/
+		    {
+			key: "Ctrl-;",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:select-to-end-of-line");
+			    return true;
+			}
+		    }
 		])
 	    )
 	);
@@ -994,6 +1009,20 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return this.applyKillRange(editor, rangeInfo);
     }
 
+    // Ctrl+; Method using getRangeToEndOfVisualLine(editor) 
+    selectToEndOfLine(editor) {
+	return this.selectToEndOfVisualLine(editor);
+    }
+    
+    selectToEndOfVisualLine(editor) {
+	const rangeInfo = this.getRangeToEndOfVisualLine(editor);
+	const { from, to, text } = rangeInfo;
+
+	if (!text || text.length === 0) return true;
+
+	editor.setSelection(from, to);
+	return true;
+    }
     
     // Alt+F Method
     moveChunkForward(editor) {
