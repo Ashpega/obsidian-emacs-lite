@@ -502,7 +502,15 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 	
-	// Ctrl+C: コピーして mark 解除.
+
+	// Ctrl+C: コピーして mark 解除
+	this.addCommand({
+	    id: "copy-region-ctrl-c",
+	    name: "Copy region (Ctrl+C)",
+	    editorCallback: (editor) => this.copyRegionCtrlC(editor),
+	});
+
+	/*
 	// defaultでCtrl+Cはcopyだが、MarkSetの解除のために自作cmdとして登録.
 	this.addCommand({
 	    id: "copy-region-ctrl-c",
@@ -523,7 +531,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 		}
 	    },
 	});
-
+	*/
 
 	// Ctrl+L: カーソル位置を画面中央付近に表示
 	this.addCommand({
@@ -561,29 +569,12 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 
-	// Ctrl+Xを選択があるときだけcut(Windows標準)に変更.
-	// DefaultはCtrl+Cが一行全体の切り取り.
-	this.registerEditorExtension(
-	    Prec.high(
-		keymap.of([
-		    {
-			key: "Ctrl-x",
-			run: (view) => {
-			    const hasSelection = view.state.selection.ranges.some(
-				(r) => !r.empty
-			    );
-
-			    if (!hasSelection) {
-				return true; // 選択がなければ何もしない
-			    }
-
-			    document.execCommand("cut");
-			    return true;
-			},
-		    },
-		])
-	    )
-	);
+	// Ctrl+X: 選択がある場合のみ cut（Windows的挙動）
+	this.addCommand({
+	    id: "cut-region-ctrl-x",
+	    name: "Cut region (Ctrl+X)",
+	    editorCallback: (editor) => this.cutRegionCtrlX(editor),
+	});
 	
 	// Ctrl+< : 文書の先頭へ移動
 	this.addCommand({
@@ -732,6 +723,22 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			},
 		    },
 		    {
+			key: "Ctrl-c",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:copy-region-ctrl-c");
+			    return true;
+			}
+		    },
+		    {
+			key: "Ctrl-x",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:cut-region-ctrl-x");
+			    return true;
+			}
+		    },
+		    {
 			key: "Ctrl-k",
 			preventDefault: true,
 			run: () => {
@@ -810,6 +817,49 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return view.editor?.cm ?? null;
     }
 
+    // Ctrl+C Method
+    copyRegionCtrlC(editor) {
+	const selection = editor.getSelection();
+
+	if (!selection || selection.length === 0) {
+	    return true;
+	}
+
+	clipboard.writeText(selection);
+
+	// fallback 用に残してもok
+	// this.lastYankText = selection;
+
+	if (this.markActive) {
+	    this.clearMark(editor);
+	}
+
+	return true;
+    }
+
+    // Ctrl+V Method
+    cutRegionCtrlX(editor) {
+	const selection = editor.getSelection();
+
+	// 選択がなければ何もしない（Windows準拠）
+	if (!selection || selection.length === 0) {
+	    return true;
+	}
+
+	// clipboardへ書き込み
+	clipboard.writeText(selection);
+
+	// 削除
+	editor.replaceSelection("");
+
+	// mark解除（必要なら）
+	if (this.markActive) {
+	    this.clearMark(editor);
+	}
+
+	return true;
+    }
+    
     // Ctrl+F Method
     moveCharForward(editor) {
 	const offset = editor.posToOffset(editor.getCursor());
