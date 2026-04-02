@@ -317,7 +317,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "cursor-forward",
 	    name: "Move cursor forward by character",
-//	    hotkeys: [{ modifiers: ["Ctrl"], key: "f" }],
 	    editorCallback: (editor) => this.moveCharForward(editor),
 	});
 	
@@ -325,7 +324,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "cursor-backward",
 	    name: "Move cursor backward by character",
-//	    hotkeys: [{ modifiers: ["Ctrl"], key: "b" }],
 	    editorCallback: (editor) => this.moveCharBackward(editor),
 	});
 
@@ -333,7 +331,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "move-visual-line-down",
 	    name: "Move visual line down",
-//	    hotkeys: [{ modifiers: ["Ctrl"], key: "n" }],
 	    editorCallback: (editor) => this.moveLineDown(editor),
 	});
 
@@ -341,7 +338,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "move-visual-line-up",
 	    name: "Move visual line up",
-//	    hotkeys: [{ modifiers: ["Ctrl"], key: "p" }],
 	    editorCallback: (editor) => this.moveLineUp(editor),
 	});
 	
@@ -349,7 +345,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
             id: "delete-char-forward",
             name: "Delete character forward",
-//	    hotkeys: [{ modifiers: ["Ctrl"], key: "d" }],
             editorCallback: (editor) => this.deleteCharForward(editor),
         });
 
@@ -357,7 +352,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "delete-char-backward",
 	    name: "Delete character backward",
-//	    hotkeys: [{ modifiers: ["Ctrl"], key: "h" }],
 	    editorCallback: (editor) => this.deleteCharBackward(editor),
 	});
 
@@ -365,7 +359,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "cursor-chunk-forward",
 	    name: "Move cursor forward by chunk",
-//	    hotkeys: [{ modifiers: ["Alt"], key: "f" }],
 	    editorCallback: (editor) => this.moveChunkForward(editor),
 	});
 
@@ -373,7 +366,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "cursor-chunk-backward",
 	    name: "Move cursor backward by chunk",
-//	    hotkeys: [{ modifiers: ["Alt"], key: "b" }],
 	    editorCallback: (editor) => this.moveChunkBackward(editor),
 	});
 
@@ -381,7 +373,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "delete-chunk-forward",
 	    name: "Delete chunk forward",
-//	    hotkeys: [{ modifiers: ["Alt"], key: "d" }],
 	    editorCallback: (editor) => this.deleteChunkForward(editor),
 	});
 
@@ -389,7 +380,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.addCommand({
 	    id: "delete-chunk-backward",
 	    name: "Delete chunk backward",
-//	    hotkeys: [{ modifiers: ["Alt"], key: "h" }],
 	    editorCallback: (editor) => this.deleteChunkBackward(editor),
 	});
 	
@@ -414,7 +404,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	});
 
 	// 保持用の変数の宣言
-        this.lastYankText = "";
+//        this.lastYankText = "";
 	
 	// Ctrl+K: カーソル位置から行末まで削除し、削除内容をクリップボードへ
 	this.addCommand({
@@ -429,79 +419,28 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    name: "Select to end of line",
 	    editorCallback: (editor) => this.selectToEndOfLine(editor),
 	});
+
+	// Ctrl+W: 選択範囲を kill
+	this.addCommand({
+	    id: "kill-region",
+	    name: "Kill region",
+	    editorCallback: (editor) => this.killRegion(editor),
+	});
 	
-	
-	// Ctrl+W: 選択範囲をコピーして削除
-        this.addCommand({
-            id: "kill-region",
-            name: "Kill region",
-            hotkeys: [{ modifiers: ["Ctrl"], key: "w" }],
-            editorCallback: (editor) => {
-                const selection = editor.getSelection();
+	// Alt+W: 選択範囲をコピー（killしない）
+	this.addCommand({
+	    id: "copy-region",
+	    name: "Copy region",
+	    editorCallback: (editor) => this.copyRegion(editor),
+	});
 
-                if (!selection || selection.length === 0) {
-                    return;
-                }
 
-                this.lastYankText = selection;
-                clipboard.writeText(selection);
-                editor.replaceSelection("");
-
-		if (this.markActive) {
-		    this.clearMark(editor);
-		}
-            },
-        });
-
-        // Alt+W: 選択範囲をコピーのみ
-        this.addCommand({
-            id: "copy-region",
-            name: "Copy region",
-            hotkeys: [{ modifiers: ["Alt"], key: "w" }],
-            editorCallback: (editor) => {
-                const selection = editor.getSelection();
-
-                if (!selection || selection.length === 0) {
-                    return;
-                }
-
-                this.lastYankText = selection;
-                clipboard.writeText(selection);
-
-		if (this.markActive) {
-		    this.clearMark(editor);
-		}
-            },
-        });
-
-        // Ctrl+Y: 直前に kill / copy した内容を貼り付け
+	// Ctrl+Y: clipboard から貼り付け
 	this.addCommand({
 	    id: "yank",
 	    name: "Yank",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "y" }],
-	    editorCallback: async (editor) => {
-		let text = this.lastYankText;
-
-		// lastYankTextになければ、clipboardから取得.
-		// clipboard.readText() は非同期. asyncで扱う.
-		if (!text) {
-		    try {
-			text = await navigator.clipboard.readText();
-		    } catch (e) {
-			return;
-		    }
-		}
-
-		if (!text) return;
-
-		editor.replaceSelection(text);
-
-		if (this.markActive) {
-		    this.clearMark(editor);
-		}
-	    },
-	});
-	
+	    editorCallback: async (editor) => this.yank(editor),
+	});	
 
 	// Ctrl+C: コピーして mark 解除
 	this.addCommand({
@@ -509,29 +448,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    name: "Copy region (Ctrl+C)",
 	    editorCallback: (editor) => this.copyRegionCtrlC(editor),
 	});
-
-	/*
-	// defaultでCtrl+Cはcopyだが、MarkSetの解除のために自作cmdとして登録.
-	this.addCommand({
-	    id: "copy-region-ctrl-c",
-	    name: "Copy region (Ctrl+C)",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "c" }],
-	    editorCallback: (editor) => {
-		const selection = editor.getSelection();
-
-		if (!selection || selection.length === 0) {
-		    return;
-		}
-
-		this.lastYankText = selection;
-		clipboard.writeText(selection);
-
-		if (this.markActive) {
-		    this.clearMark(editor);
-		}
-	    },
-	});
-	*/
 
 	// Ctrl+L: カーソル位置を画面中央付近に表示
 	this.addCommand({
@@ -723,6 +639,22 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			},
 		    },
 		    {
+			key: "Alt-w",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:copy-region");
+			    return true;
+			}
+		    },
+		    {
+			key: "Ctrl-w",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:kill-region");
+			    return true;
+			}
+		    },
+		    {
 			key: "Ctrl-c",
 			preventDefault: true,
 			run: () => {
@@ -746,16 +678,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			    return true;
 			}
 		    },
-/*		    {
-			key: "Ctrl-k",
-			preventDefault: true,
-			run: () => {
-			    const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			    if (!mdView) return false;
-			    this.killLine(mdView.editor);
-			    return true;
-			},
-			},*/
 		    {
 			key: "Ctrl-;",
 			preventDefault: true,
@@ -763,7 +685,15 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:select-to-end-of-line");
 			    return true;
 			}
-		    }
+		    },
+		    {
+			key: "Ctrl-y",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:yank");
+			    return true;
+			}
+		    },
 		])
 	    )
 	);
@@ -817,6 +747,44 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return view.editor?.cm ?? null;
     }
 
+    // Alt+W Method
+    copyRegion(editor) {
+	const selection = editor.getSelection();
+
+	if (!selection || selection.length === 0) {
+	    return true;
+	}
+
+	clipboard.writeText(selection);
+	// this.lastYankText = selection;
+
+	if (this.markActive) {
+	    this.clearMark(editor);
+	}
+
+	return true;
+    }
+    
+    // Ctrl+W Method
+    killRegion(editor) {
+	const selection = editor.getSelection();
+
+	if (!selection || selection.length === 0) {
+	    return true;
+	}
+
+	clipboard.writeText(selection);
+	// this.lastYankText = selection;
+
+	editor.replaceSelection("");
+
+	if (this.markActive) {
+	    this.clearMark(editor);
+	}
+
+	return true;
+    }
+    
     // Ctrl+C Method
     copyRegionCtrlC(editor) {
 	const selection = editor.getSelection();
@@ -837,7 +805,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
-    // Ctrl+V Method
+    // Ctrl+X Method
     cutRegionCtrlX(editor) {
 	const selection = editor.getSelection();
 
@@ -1045,7 +1013,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	if (!text || text.length === 0) return true;
 
-	this.lastYankText = text;
+//	this.lastYankText = text;
 	clipboard.writeText(text);
 
 	editor.replaceRange("", from, to);
@@ -1071,6 +1039,29 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	if (!text || text.length === 0) return true;
 
 	editor.setSelection(from, to);
+	return true;
+    }
+
+    // Ctrl+Y Method
+    async yank(editor) {
+	let text = "";
+
+	try {
+	    text = await navigator.clipboard.readText();
+	} catch (e) {
+	    return true;
+	}
+
+	if (!text) {
+	    return true;
+	}
+
+	editor.replaceSelection(text);
+
+	if (this.markActive) {
+	    this.clearMark(editor);
+	}
+
 	return true;
     }
     
