@@ -1,6 +1,7 @@
 const { Prec } = require("@codemirror/state");
 const { keymap } = require("@codemirror/view");
-const { Plugin, MarkdownView } = require("obsidian");
+//const { keymap, EditorView } = require("@codemirror/view");
+const { Plugin, MarkdownView, PluginSettingTab, Setting } = require("obsidian");
 const { clipboard } = require("electron");
 const {
     cursorLineBoundaryForward,
@@ -15,6 +16,11 @@ const {
     deleteGroupBackward
 } = require("@codemirror/commands");
 const { EditorSelection } = require("@codemirror/state");
+
+// key repeat inputのためのsettingのdefault値
+const DEFAULT_SETTINGS = {
+	enableKeyRepeat: true,
+};
 
 /*
   日本語文章に対するAlt+F/B/D/H で必要となるediting chunk関連の関数群
@@ -252,12 +258,40 @@ function findWordBackwardBoundary(line, startCh) {
 
 
 module.exports = class EmacsLitePlugin extends Plugin {
-    onload() {
+    async onload() {
 
 	// 状態変数の追加
 	this.markActive = false;
 	this.markAnchor = null;
 
+	this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	// 設定画面の追加
+	this.addSettingTab(new EmacsLiteSettingTab(this.app, this));
+
+	// window の keydown handler
+	const repeatHandler = (event) => {
+	    const isTarget =
+		  event.ctrlKey &&
+		  !event.altKey &&
+		!event.shiftKey &&
+		!event.metaKey &&
+		["f", "b", "p", "n", "k"].includes(event.key.toLowerCase());
+
+	    if (!isTarget) return;
+
+	    if (!event.repeat) return;
+
+	    if (!this.settings.enableKeyRepeat) {
+		event.preventDefault();
+		event.stopPropagation();
+		if (typeof event.stopImmediatePropagation === "function") {
+		    event.stopImmediatePropagation();
+		}
+	    }
+	};
+
+	window.addEventListener("keydown", repeatHandler, true);
+	this.register(() => window.removeEventListener("keydown", repeatHandler, true));
 	
 	// Ctrl+M: Return.  Enter.
 	this.addCommand({
@@ -554,7 +588,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    this.syncMarkSelection(editor);
 	});
 
-
+	
 	this.registerEditorExtension(
 	    Prec.high(
 		keymap.of([
@@ -564,7 +598,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			run: () => {
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-forward");
 			    return true;
-			},
+			}
 		    },
 		    {
 			key: "Ctrl-b",
@@ -1325,3 +1359,27 @@ module.exports = class EmacsLitePlugin extends Plugin {
     }
 
 };
+
+class EmacsLiteSettingTab extends PluginSettingTab {
+    constructor(app, plugin) {
+	super(app, plugin);
+	this.plugin = plugin;
+    }
+
+    display() {
+	const { containerEl } = this;
+	containerEl.empty();
+
+	new Setting(containerEl)
+	    .setName("Enable key repeat")
+	    .setDesc("Allow press-and-hold repetition for Emacs-like keys")
+	    .addToggle((toggle) =>
+		toggle
+		    .setValue(this.plugin.settings.enableKeyRepeat)
+		    .onChange(async (value) => {
+			this.plugin.settings.enableKeyRepeat = value;
+			await this.plugin.saveData(this.plugin.settings);
+		    })
+	    );
+    }
+}
