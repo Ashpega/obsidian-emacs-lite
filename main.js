@@ -1135,14 +1135,30 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    const newCh = findWordForwardBoundary(lineText, pos.ch);
 
 	    if (newCh > pos.ch) {
-		editor.setCursor({ line: pos.line, ch: newCh });
+		const newPos = { line: pos.line, ch: newCh };
+
+		if (this.markActive && this.markAnchor) {
+		    editor.setSelection(
+			{ line: this.markAnchor.line, ch: this.markAnchor.ch },
+			newPos
+		    );
+		} else {
+		    editor.setCursor(newPos);
+		}
 		return true;
 	    }
 
 	    const nextPos = moveForwardOne(pos);
 
 	    if (nextPos.line === pos.line && nextPos.ch === pos.ch) {
-		editor.setCursor(pos);
+		if (this.markActive && this.markAnchor) {
+		    editor.setSelection(
+			{ line: this.markAnchor.line, ch: this.markAnchor.ch },
+			pos
+		    );
+		} else {
+		    editor.setCursor(pos);
+		}
 		return true;
 	    }
 
@@ -1176,14 +1192,30 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    const newCh = findWordBackwardBoundary(lineText, pos.ch);
 
 	    if (newCh < pos.ch) {
-		editor.setCursor({ line: pos.line, ch: newCh });
+		const newPos = { line: pos.line, ch: newCh };
+
+		if (this.markActive && this.markAnchor) {
+		    editor.setSelection(
+			{ line: this.markAnchor.line, ch: this.markAnchor.ch },
+			newPos
+		    );
+		} else {
+		    editor.setCursor(newPos);
+		}
 		return true;
 	    }
 
 	    const prevPos = moveBackwardOne(pos);
 
 	    if (prevPos.line === pos.line && prevPos.ch === pos.ch) {
-		editor.setCursor(pos);
+		if (this.markActive && this.markAnchor) {
+		    editor.setSelection(
+			{ line: this.markAnchor.line, ch: this.markAnchor.ch },
+			pos
+		    );
+		} else {
+		    editor.setCursor(pos);
+		}
 		return true;
 	    }
 
@@ -1192,7 +1224,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	return true;
     }
-
+    
     // Alt+D Method
     deleteChunkForward(editor) {
 	const cursor = editor.getCursor();
