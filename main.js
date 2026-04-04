@@ -270,15 +270,23 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	// window の keydown handler
 	const repeatHandler = (event) => {
-	    const isTarget =
+	    const key = event.key.toLowerCase();
+
+	    const isCtrlTarget =
 		  event.ctrlKey &&
 		  !event.altKey &&
 		!event.shiftKey &&
 		!event.metaKey &&
-		["f", "b", "p", "n", "k"].includes(event.key.toLowerCase());
+		["f", "b", "p", "n", "k", "d", "h"].includes(key);
 
-	    if (!isTarget) return;
+	    const isAltTarget =
+		  event.altKey &&
+		  !event.ctrlKey &&
+		!event.shiftKey &&
+		!event.metaKey &&
+		["f", "b", "d", "h"].includes(key);
 
+	    if (!(isCtrlTarget || isAltTarget)) return;
 	    if (!event.repeat) return;
 
 	    if (!this.settings.enableKeyRepeat) {
@@ -979,48 +987,59 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
     
+
     // Ctrl+D Method
     deleteCharForward(editor) {
-        const selection = editor.getSelection();
+	const selection = editor.getSelection();
 
-        // 選択範囲がある場合は、その範囲を削除
-        if (selection && selection.length > 0) {
+	// 選択範囲がある場合は、その範囲を削除
+	if (selection && selection.length > 0) {
             editor.replaceSelection("");
-            return;
-        }
 
-        const cursor = editor.getCursor();
-        const line = editor.getLine(cursor.line);
+            if (this.markActive) {
+		this.clearMark(editor);
+            }
 
-        // 行末で、かつ最終行でもある場合は何もしない
-        const isEndOfLine = cursor.ch >= line.length;
-        const isLastLine = cursor.line >= editor.lineCount() - 1;
+            return true;
+	}
 
-        if (isEndOfLine && isLastLine) {
-            return;
-        }
+	const cursor = editor.getCursor();
+	const line = editor.getLine(cursor.line);
 
-        // 通常ケース:
-        // - 行中なら右1文字削除
-        // - 行末なら次行との改行を削除（Emacs/Ctrl-d風）
-        const from = { line: cursor.line, ch: cursor.ch };
-        const to = isEndOfLine
+	// 行末で、かつ最終行でもある場合は何もしない
+	const isEndOfLine = cursor.ch >= line.length;
+	const isLastLine = cursor.line >= editor.lineCount() - 1;
+
+	if (isEndOfLine && isLastLine) {
+            return true;
+	}
+
+	// 通常ケース:
+	// - 行中なら右1文字削除
+	// - 行末なら次行との改行を削除（Emacs/Ctrl-d風）
+	const from = { line: cursor.line, ch: cursor.ch };
+	const to = isEndOfLine
               ? { line: cursor.line + 1, ch: 0 }
               : { line: cursor.line, ch: cursor.ch + 1 };
 
-        editor.replaceRange("", from, to);
+	editor.replaceRange("", from, to);
 
 	return true;
     }
-
-    // Ctrl+H Method  
+    
+    // Ctrl+H Method
     deleteCharBackward(editor) {
 	const selection = editor.getSelection();
 
 	// 選択範囲がある場合は、その範囲を削除
 	if (selection && selection.length > 0) {
 	    editor.replaceSelection("");
-	    return;
+
+	    if (this.markActive) {
+		this.clearMark(editor);
+	    }
+
+	    return true;
 	}
 
 	const cursor = editor.getCursor();
@@ -1030,12 +1049,12 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	const isFirstLine = cursor.line === 0;
 
 	if (isStartOfLine && isFirstLine) {
-	    return;
+	    return true;
 	}
 
 	// 通常ケース:
 	// - 行中なら左1文字削除
-	// - 行頭なら前行との改行を削除（Emacs/Ctrl-h風というより Backspace 風）
+	// - 行頭なら前行との改行を削除
 	const from = isStartOfLine
 	      ? { line: cursor.line - 1, ch: editor.getLine(cursor.line - 1).length }
 	      : { line: cursor.line, ch: cursor.ch - 1 };
@@ -1046,7 +1065,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	return true;
     }
-
 
     // Ctrl+K Method
     killToEndOfLine(editor) {
@@ -1258,9 +1276,22 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	return true;
     }
-    
+
     // Alt+D Method
     deleteChunkForward(editor) {
+	const selection = editor.getSelection();
+
+	// 選択範囲がある場合は、その範囲を削除
+	if (selection && selection.length > 0) {
+	    editor.replaceSelection("");
+
+	    if (this.markActive) {
+		this.clearMark(editor);
+	    }
+
+	    return true;
+	}
+
 	const cursor = editor.getCursor();
 	const from = { line: cursor.line, ch: cursor.ch };
 
@@ -1306,11 +1337,26 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	editor.replaceRange("", from, to);
 	editor.setCursor(from);
+
 	return true;
     }
+    
 
     // Alt+H method
     deleteChunkBackward(editor) {
+	const selection = editor.getSelection();
+
+	// 選択範囲がある場合は、その範囲を削除
+	if (selection && selection.length > 0) {
+	    editor.replaceSelection("");
+
+	    if (this.markActive) {
+		this.clearMark(editor);
+	    }
+
+	    return true;
+	}
+
 	const cursor = editor.getCursor();
 	const to = { line: cursor.line, ch: cursor.ch };
 
@@ -1355,6 +1401,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	editor.replaceRange("", from, to);
 	editor.setCursor(from);
+
 	return true;
     }
 
