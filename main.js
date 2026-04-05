@@ -19,7 +19,9 @@ const { EditorSelection } = require("@codemirror/state");
 
 // key repeat inputのためのsettingのdefault値
 const DEFAULT_SETTINGS = {
-	enableKeyRepeat: true,
+    enableKeyRepeat: true,
+//    lineMode: "logical",
+    lineMode: "visual"
 };
 
 /*
@@ -1101,9 +1103,46 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
     // Ctrl+K Method
     killToEndOfLine(editor) {
+	if (this.settings.lineMode === "logical") {
+            return this.killToEndOfLogicalLine(editor);
+	}
+
 	return this.killToEndOfVisualLine(editor);
     }
 
+    // logical line 用のrangeを取得
+    getRangeToEndOfLogicalLine(editor) {
+	const selection = editor.getSelection();
+
+	if (selection && selection.length > 0) {
+            const from = editor.getCursor("from");
+            const to = editor.getCursor("to");
+            return { from, to, text: selection };
+	}
+
+	const from = editor.getCursor();
+	const lineText = editor.getLine(from.line);
+	const logicalEnd = { line: from.line, ch: lineText.length };
+
+	const atLogicalEnd = from.line === logicalEnd.line && from.ch === logicalEnd.ch;
+	const isLastLine = from.line >= editor.lineCount() - 1;
+
+	if (atLogicalEnd) {
+            if (!isLastLine) {
+		const to = { line: from.line + 1, ch: 0 };
+		const text = editor.getRange(from, to);
+		return { from, to, text };
+            }
+
+            return { from, to: from, text: "" };
+	}
+
+	const to = logicalEnd;
+	const text = editor.getRange(from, to);
+	return { from, to, text };
+    }
+    
+    // visual line 用のrangeを取得
     getRangeToEndOfVisualLine(editor) {
 	const selection = editor.getSelection();
 
@@ -1152,6 +1191,13 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
+    // logical line kill
+    killToEndOfLogicalLine(editor) {
+	const rangeInfo = this.getRangeToEndOfLogicalLine(editor);
+	return this.applyKillRange(editor, rangeInfo);
+    }
+
+    // visual line kill
     killToEndOfVisualLine(editor) {
 	const rangeInfo = this.getRangeToEndOfVisualLine(editor);
 	return this.applyKillRange(editor, rangeInfo);
@@ -1159,10 +1205,43 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
     // Ctrl+; Method using getRangeToEndOfVisualLine(editor) 
     selectToEndOfLine(editor) {
+	if (this.settings.lineMode === "logical") {
+            return this.selectToEndOfLogicalLine(editor);
+	}
+
 	return this.selectToEndOfVisualLine(editor);
     }
     
+    selectToEndOfLogicalLine(editor) {
+	// Mark Activeかを確認
+	if (this.markActive) {
+            const cursor = editor.getCursor();
+            const lineText = editor.getLine(cursor.line);
+            const to = { line: cursor.line, ch: lineText.length };
+
+            editor.setCursor(to);
+            this.syncMarkSelection(editor);
+            return true;
+	}
+
+	const rangeInfo = this.getRangeToEndOfLogicalLine(editor);
+	const { from, to, text } = rangeInfo;
+
+	if (!text || text.length === 0) return true;
+
+	editor.setSelection(from, to);
+	return true;
+    }
+    
     selectToEndOfVisualLine(editor) {
+	// Mark Activeかを確認
+	if (this.markActive) {
+            const to = this.getVisualLineEnd(editor);
+            editor.setCursor(to);
+            this.syncMarkSelection(editor);
+            return true;
+	}
+
 	const rangeInfo = this.getRangeToEndOfVisualLine(editor);
 	const { from, to, text } = rangeInfo;
 
@@ -1171,6 +1250,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	editor.setSelection(from, to);
 	return true;
     }
+    
 
     // Ctrl+Y Method
     async yank(editor) {
