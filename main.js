@@ -318,43 +318,18 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	// Ctrl+A: visual line の左端へ移動
 	this.addCommand({
-	    id: "move-to-visual-line-start",
-	    name: "Move to visual line start",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "a" }],
-	    editorCallback: (editor) => {
-		const cm = this.getEditorView();
-
-		if (cm) {
-		    cursorLineBoundaryBackward(cm);
-		} else {
-		    // fallback: 従来の論理行頭
-		    const cursor = editor.getCursor();
-		    editor.setCursor({ line: cursor.line, ch: 0 });
-		}
-
-		if (this.markActive) {
-		    this.syncMarkSelection(editor);
-		}
-	    },
+	    id: "cursor-line-start",
+	    name: "Move to line start",
+	    editorCallback: (editor) => this.cursorLineStart(editor),
 	});
-	
 
 	// Ctrl+E: visual line の右端へ移動
 	this.addCommand({
-	    id: "move-to-visual-line-end",
-	    name: "Move to visual line end",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "e" }],
-	    editorCallback: (editor) => {
-		const to = this.getVisualLineEnd(editor);
-		editor.setCursor(to);
-
-		if (this.markActive) {
-		    this.syncMarkSelection(editor);
-		}
-	    },
+	    id: "cursor-line-end",
+	    name: "Move to line end",
+	    editorCallback: (editor) => this.cursorLineEnd(editor),
 	});
 
-	
 	// Ctrl+F: 右へ1文字移動
 	this.addCommand({
 	    id: "cursor-forward",
@@ -601,6 +576,22 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    Prec.high(
 		keymap.of([
 		    {
+			key: "Ctrl-a",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-line-start");
+			    return true;
+			},
+		    },
+		    {
+			key: "Ctrl-e",
+			preventDefault: true,
+			run: () => {
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:cursor-line-end");
+			    return true;
+			},
+		    },
+		    {
 			key: "Ctrl-f",
 			preventDefault: true,
 			run: () => {
@@ -741,6 +732,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	);
     }
 
+
+    // Ctrl+Kで使用.
     getVisualLineEnd(editor) {
 	const cm = this.getEditorView();
 
@@ -788,6 +781,46 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	// Obsidian内部のCM6 EditorView
 	return view.editor?.cm ?? null;
     }
+
+    // Ctrl+A method
+    cursorLineStart(editor) {
+	const cm = this.getEditorView();
+
+	if (cm) {
+            cursorLineBoundaryBackward(cm);
+	} else {
+            // fallback: 従来の論理行頭
+            const cursor = editor.getCursor();
+            editor.setCursor({ line: cursor.line, ch: 0 });
+	}
+
+	if (this.markActive) {
+            this.syncMarkSelection(editor);
+	}
+
+	return true;
+    }
+    
+    // Ctrl+E method
+    cursorLineEnd(editor) {
+	const cm = this.getEditorView();
+
+	if (cm) {
+            cursorLineBoundaryForward(cm);
+	} else {
+            // fallback: 従来の論理行末
+            const cursor = editor.getCursor();
+            const lineText = editor.getLine(cursor.line);
+            editor.setCursor({ line: cursor.line, ch: lineText.length });
+	}
+
+	if (this.markActive) {
+            this.syncMarkSelection(editor);
+	}
+
+	return true;
+    }
+    
 
     // Alt+W Method
     copyRegion(editor) {
