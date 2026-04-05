@@ -20,8 +20,8 @@ const { EditorSelection } = require("@codemirror/state");
 // key repeat inputのためのsettingのdefault値
 const DEFAULT_SETTINGS = {
     enableKeyRepeat: true,
-//    lineMode: "logical",
-    lineMode: "visual"
+    lineMode: "logical",
+//    lineMode: "visual"
 };
 
 /*
@@ -786,12 +786,19 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
     // Ctrl+A method
     cursorLineStart(editor) {
+	if (this.settings.lineMode === "logical") {
+            return this.cursorLogicalLineStart(editor);
+	}
+
+	return this.cursorVisualLineStart(editor);
+    }
+
+    cursorVisualLineStart(editor) {
 	const cm = this.getEditorView();
 
 	if (cm) {
             cursorLineBoundaryBackward(cm);
 	} else {
-            // fallback: 従来の論理行頭
             const cursor = editor.getCursor();
             editor.setCursor({ line: cursor.line, ch: 0 });
 	}
@@ -802,15 +809,33 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	return true;
     }
+
+    cursorLogicalLineStart(editor) {
+	const cursor = editor.getCursor();
+	editor.setCursor({ line: cursor.line, ch: 0 });
+
+	if (this.markActive) {
+            this.syncMarkSelection(editor);
+	}
+
+	return true;
+    }
     
     // Ctrl+E method
     cursorLineEnd(editor) {
+	if (this.settings.lineMode === "logical") {
+            return this.cursorLogicalLineEnd(editor);
+	}
+
+	return this.cursorVisualLineEnd(editor);
+    }
+
+    cursorVisualLineEnd(editor) {
 	const cm = this.getEditorView();
 
 	if (cm) {
             cursorLineBoundaryForward(cm);
 	} else {
-            // fallback: 従来の論理行末
             const cursor = editor.getCursor();
             const lineText = editor.getLine(cursor.line);
             editor.setCursor({ line: cursor.line, ch: lineText.length });
@@ -823,7 +848,20 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
     
+    cursorLogicalLineEnd(editor) {
+	const cursor = editor.getCursor();
+	const lineText = editor.getLine(cursor.line);
 
+	editor.setCursor({ line: cursor.line, ch: lineText.length });
+
+	if (this.markActive) {
+            this.syncMarkSelection(editor);
+	}
+
+	return true;
+    }
+
+    
     // Alt+W Method
     copyRegion(editor) {
 	const selection = editor.getSelection();
