@@ -21,7 +21,10 @@ const { EditorSelection } = require("@codemirror/state");
 const DEFAULT_SETTINGS = {
     enableKeyRepeat: true,
     lineMode: "logical",
-//    lineMode: "visual"
+    
+    enableExtendedDelete: true,   // Ctrl+H / Alt+H
+    enableExtendedSelection: true, // Ctrl+;
+    enableSystemOverride: true,   // Ctrl+X/C/Z
 };
 
 /*
@@ -260,13 +263,22 @@ function findWordBackwardBoundary(line, startCh) {
 
 
 module.exports = class EmacsLitePlugin extends Plugin {
+
+    async loadSettings() {
+	this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    }
+
+    async saveSettings() {
+	await this.saveData(this.settings);
+    }
+    
     async onload() {
 
 	// 状態変数の追加
 	this.markActive = false;
 	this.markAnchor = null;
 
-	this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	await this.loadSettings();
 	// 設定画面の追加
 	this.addSettingTab(new EmacsLiteSettingTab(this.app, this));
 
@@ -401,26 +413,22 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    name: "Delete chunk backward",
 	    editorCallback: (editor) => this.deleteChunkBackward(editor),
 	});
-	
+
+/*	
 	// Ctrl+Z: Undo
 	this.addCommand({
 	    id: "undo",
 	    name: "Undo",
-	    hotkeys: [{ modifiers: ["Ctrl"], key: "z" }],
-	    editorCallback: (editor) => {
-		editor.undo();
-	    },
+	    editorCallback: (editor) => this.undo(editor),
 	});
 
 	// Ctrl+Shift+Z: Redo
 	this.addCommand({
 	    id: "redo",
 	    name: "Redo",
-	    hotkeys: [{ modifiers: ["Ctrl", "Shift"], key: "z" }],
-	    editorCallback: (editor) => {
-		editor.redo();
-	    },
+	    editorCallback: (editor) => this.redo(editor),
 	});
+*/
 
 	// 保持用の変数の宣言
 //        this.lastYankText = "";
@@ -635,8 +643,9 @@ module.exports = class EmacsLitePlugin extends Plugin {
 		    },
 		    {
 			key: "Ctrl-h",
-			preventDefault: true,
 			run: () => {
+			    if (!this.settings.enableExtendedDelete) return false;
+
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:delete-char-backward");
 			    return true;
 			},
@@ -667,8 +676,9 @@ module.exports = class EmacsLitePlugin extends Plugin {
 		    },
 		    {
 			key: "Alt-h",
-			preventDefault: true,
 			run: () => {
+			    if (!this.settings.enableExtendedDelete) return false;
+
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:delete-chunk-backward");
 			    return true;
 			},
@@ -691,19 +701,21 @@ module.exports = class EmacsLitePlugin extends Plugin {
 		    },
 		    {
 			key: "Ctrl-c",
-			preventDefault: true,
 			run: () => {
+			    if (!this.settings.enableSystemOverride) return false;
+
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:copy-region-ctrl-c");
 			    return true;
-			}
+			},
 		    },
 		    {
 			key: "Ctrl-x",
-			preventDefault: true,
 			run: () => {
+			    if (!this.settings.enableSystemOverride) return false;
+
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:cut-region-ctrl-x");
 			    return true;
-			}
+			},
 		    },
 		    {
 			key: "Ctrl-k",
@@ -717,9 +729,11 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			key: "Ctrl-;",
 			preventDefault: true,
 			run: () => {
+			    if (!this.settings.enableExtendedSelection) return false;
+
 			    this.app.commands.executeCommandById("obsidian-emacs-lite:select-to-end-of-line");
 			    return true;
-			}
+			},
 		    },
 		    {
 			key: "Ctrl-y",
@@ -729,6 +743,26 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			    return true;
 			}
 		    },
+		    /*
+		    {
+			key: "Ctrl-z",
+			run: () => {
+			    if (!this.settings.enableSystemOverride) return false;
+
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:undo");
+			    return true;
+			}
+		    },
+		    {
+			key: "Ctrl-Shift-z",
+			run: () => {
+			    if (!this.settings.enableSystemOverride) return false;
+
+			    this.app.commands.executeCommandById("obsidian-emacs-lite:redo");
+			    return true;
+			},
+		    },
+		    */
 		])
 	    )
 	);
@@ -942,7 +976,19 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	return true;
     }
+/*
+    // Ctrl+Z Method
+    undo(editor) {
+	editor.undo();
+	return true;
+    }
     
+    // Ctrl+Shift+Z Method
+    redo(editor) {
+	editor.redo();
+	return true;
+    }
+ */  
     // Ctrl+F Method
     moveCharForward(editor) {
 	const offset = editor.posToOffset(editor.getCursor());
@@ -1567,17 +1613,68 @@ class EmacsLiteSettingTab extends PluginSettingTab {
     display() {
 	const { containerEl } = this;
 	containerEl.empty();
+	
+	new Setting(containerEl)
+            .setName("Enable key repeat")
+            .setDesc("Allow press-and-hold repeat for supported Ctrl/Alt keys.")
+            .addToggle(toggle =>
+                toggle
+                    .setValue(this.plugin.settings.enableKeyRepeat)
+                    .onChange(async (value) => {
+                        this.plugin.settings.enableKeyRepeat = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        new Setting(containerEl)
+            .setName("Line mode")
+            .setDesc("Choose whether line-based commands use visual lines or logical lines.")
+            .addDropdown(dropdown =>
+                dropdown
+                    .addOption("visual", "Visual line")
+                    .addOption("logical", "Logical line")
+                    .setValue(this.plugin.settings.lineMode)
+                    .onChange(async (value) => {
+                        this.plugin.settings.lineMode = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
 
 	new Setting(containerEl)
-	    .setName("Enable key repeat")
-	    .setDesc("Allow press-and-hold repetition for Emacs-like keys")
-	    .addToggle((toggle) =>
+	    .setName("Extended delete keys")
+	    .setDesc("Enable Ctrl+H / Alt+H backward delete")
+	    .addToggle(toggle =>
 		toggle
-		    .setValue(this.plugin.settings.enableKeyRepeat)
+		    .setValue(this.plugin.settings.enableExtendedDelete)
 		    .onChange(async (value) => {
-			this.plugin.settings.enableKeyRepeat = value;
-			await this.plugin.saveData(this.plugin.settings);
+			this.plugin.settings.enableExtendedDelete = value;
+			await this.plugin.saveSettings();
 		    })
 	    );
+
+	new Setting(containerEl)
+	    .setName("Extended selection key")
+	    .setDesc("Enable Ctrl+; selection to end of line")
+	    .addToggle(toggle =>
+		toggle
+		    .setValue(this.plugin.settings.enableExtendedSelection)
+		    .onChange(async (value) => {
+			this.plugin.settings.enableExtendedSelection = value;
+			await this.plugin.saveSettings();
+		    })
+	    );
+
+	new Setting(containerEl)
+	    .setName("Override system shortcuts")
+	    .setDesc("Override Ctrl+X / Ctrl+C")
+	    .addToggle(toggle =>
+		toggle
+		    .setValue(this.plugin.settings.enableSystemOverride)
+		    .onChange(async (value) => {
+			this.plugin.settings.enableSystemOverride = value;
+			await this.plugin.saveSettings();
+		    })
+	    );
+	
     }
 }
