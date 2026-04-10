@@ -1,6 +1,5 @@
 const { Prec } = require("@codemirror/state");
 const { keymap } = require("@codemirror/view");
-//const { keymap, EditorView } = require("@codemirror/view");
 const { Plugin, MarkdownView, PluginSettingTab, Setting } = require("obsidian");
 const { clipboard } = require("electron");
 const {
@@ -17,7 +16,12 @@ const {
 } = require("@codemirror/commands");
 const { EditorSelection } = require("@codemirror/state");
 
-// key repeat inputのためのsettingのdefault値
+// Default plugin settings
+// - enableKeyRepeat: allows press-and-hold repetition for supported Emacs-like keys
+// - lineMode: "logical" (default) or "visual" line behavior
+// - enableExtendedDelete: toggles extended delete bindings (Ctrl+H / Alt+H)
+// - enableExtendedSelection: toggles extended selection binding (Ctrl+;)
+// - enableSystemOverride: toggles overriding of common system shortcuts (Ctrl+X/C/Z)
 const DEFAULT_SETTINGS = {
     enableKeyRepeat: true,
     lineMode: "logical",
@@ -28,7 +32,17 @@ const DEFAULT_SETTINGS = {
 };
 
 /*
-  日本語文章に対するAlt+F/B/D/H で必要となるediting chunk関連の関数群
+  Character classification helpers for Japanese-aware "chunk" operations
+  used in Alt+F / Alt+B / Alt+D / Alt+H.
+
+  These functions define boundaries between:
+  - ASCII words (A-Za-z0-9_)
+  - whitespace
+  - punctuation (including Japanese punctuation)
+  - Japanese scripts (e.g., Hiragana)
+
+  The goal is to provide practical, editor-friendly navigation and deletion
+  behavior rather than strict linguistic correctness.
 */
 
 function isAsciiWordChar(ch) {
@@ -66,28 +80,13 @@ function getCharCategory(ch) {
     return "other";
 }
 
-/* 
- * Alt+F (forward word movement) 用の境界判定関数。
+
+/*
+ * Returns the next editing-chunk boundary for Alt+F.
  *
- * 日本語と英語が混在するテキストに対して、
- * 「編集しやすい文節的なまとまり（editing chunk）」の終端を右方向に探索する。
- *
- * 挙動の基本方針：
- * - 英数字列は1語としてまとめて進む
- * - カタカナ列も1語として扱う
- * - 句読点・記号はひとまとまりでスキップ
- * - 漢字列はひとまとまりで進み、
- *   直後のひらがながある場合は文脈に応じて取り込む
- *   - 次に漢字が続く場合：ひらがなは最大1〜2文字まで含める
- *     （例: 「近隣の」「環境は」）
- *   - 句読点・行末・英数字に向かう場合：ひらがな列をすべて含める
- *     （例: 「要素となります」）
- * - ひらがな列単体は1まとまりとして扱う
- *
- * 目的：
- * - Ctrl+F（1文字単位）との差を維持しつつ、
- *   日本語でも自然なジャンプ単位で移動できるようにする
- * - 厳密な形態素解析ではなく、軽量で実用的な区切りを提供する
+ * This is a lightweight, Japanese-aware boundary finder for mixed Japanese/ASCII text.
+ * It groups ASCII words, Katakana runs, punctuation runs, Kanji runs, and Hiragana runs.
+ * After a Kanji run, trailing Hiragana may be partially or fully included depending on context.
  */
 function findWordForwardBoundary(line, startCh) {
     const len = line.length;
@@ -95,13 +94,13 @@ function findWordForwardBoundary(line, startCh) {
 
     if (ch >= len) return ch;
 
-    // 1. 空白を飛ばす
+    // Skip leading whitespace.
     while (ch < len && getCharCategory(line[ch]) === "space") {
 	ch++;
     }
     if (ch >= len) return ch;
 
-    // 2. 句読点はひとまとまりで飛ばす
+    // Treat punctuation as one chunk.
     if (getCharCategory(line[ch]) === "punct") {
 	while (ch < len && getCharCategory(line[ch]) === "punct") {
 	    ch++;
@@ -109,7 +108,7 @@ function findWordForwardBoundary(line, startCh) {
 	return ch;
     }
 
-    // 3. 英数字列はひとまとまり
+    // Treat ASCII word characters as one chunk.
     if (getCharCategory(line[ch]) === "ascii") {
 	while (ch < len && getCharCategory(line[ch]) === "ascii") {
 	    ch++;
@@ -117,7 +116,7 @@ function findWordForwardBoundary(line, startCh) {
 	return ch;
     }
 
-    // 4. カタカナ列はひとまとまり
+    // Treat Katakana as one chunk.
     if (getCharCategory(line[ch]) === "katakana") {
 	while (ch < len && getCharCategory(line[ch]) === "katakana") {
 	    ch++;
@@ -125,16 +124,14 @@ function findWordForwardBoundary(line, startCh) {
 	return ch;
     }
 
-    // 5. 漢字列 + 後続ひらがなの扱いを改善
+    // Consume a Kanji run, then decide how much trailing Hiragana to include.
     if (getCharCategory(line[ch]) === "kanji") {
-	// 漢字列本体
 	while (ch < len && getCharCategory(line[ch]) === "kanji") {
 	    ch++;
 	}
 
 	const hiraStart = ch;
 
-	// 直後のひらがな列を全部見る
 	while (ch < len && getCharCategory(line[ch]) === "hiragana") {
 	    ch++;
 	}
@@ -143,18 +140,16 @@ function findWordForwardBoundary(line, startCh) {
 	const hiraLen = hiraEnd - hiraStart;
 	const nextCat = ch < len ? getCharCategory(line[ch]) : "eol";
 
-	// 直後に別の漢字が来るなら、ひらがなは短く切る
-	// 例: 近隣の環境 -> "近隣の"
+	// If another Kanji run follows, keep only a short Hiragana suffix.
 	if (nextCat === "kanji") {
 	    return hiraStart + Math.min(hiraLen, 2);
 	}
 
-	// 句読点・空白・行末・英数字などに向かうなら、ひらがな列を最後まで含める
-	// 例: 要素となります。 -> "要素となります"
+        // Otherwise include the full trailing Hiragana run.
 	return hiraEnd;
     }
 
-    // 6. ひらがな列はひとまとまり
+    // Treat Hiragana as one chunk.
     if (getCharCategory(line[ch]) === "hiragana") {
 	while (ch < len && getCharCategory(line[ch]) === "hiragana") {
 	    ch++;
@@ -162,45 +157,31 @@ function findWordForwardBoundary(line, startCh) {
 	return ch;
     }
 
-    // 7. その他は1文字進める
+    // Fallback: move by one character.
     return ch + 1;
 }
 
-/* 
- * Alt+B (backward word movement) 用の境界判定関数。
+/*
+ * Returns the previous editing-chunk boundary for Alt+B.
  *
- * 日本語と英語が混在するテキストに対して、
- * 「編集しやすい文節的なまとまり（editing chunk）」の先頭を左方向に探索する。
- *
- * 挙動の基本方針：
- * - 英数字列は1語としてまとめて戻る
- * - カタカナ列も1語として扱う
- * - 句読点・記号はひとまとまりでスキップ
- * - 漢字列はひとまとまり
- * - ひらがな列は通常ひとまとまりだが、
- *   直前が漢字かつ長さが1〜2文字の場合は助詞とみなし、
- *   漢字と結合して「環境は」「近隣の」などの単位で戻る
- *
- * 目的：
- * - Ctrl+B（1文字単位）との差を維持しつつ、
- *   日本語でも自然なジャンプ単位で移動できるようにする
- * - 厳密な形態素解析ではなく、軽量で実用的な区切りを提供する
+ * This is a lightweight, Japanese-aware boundary finder for mixed Japanese/ASCII text.
+ * Short Hiragana suffixes directly following Kanji may be merged back into the Kanji chunk.
  */
 function findWordBackwardBoundary(line, startCh) {
     let ch = startCh;
 
     if (ch <= 0) return 0;
 
-    // 1. いまの位置の左隣から見る
+    // Start from the character to the left of the cursor.
     ch--;
 
-    // 2. 空白は左に飛ばす
+    // Skip trailing whitespace.
     while (ch >= 0 && getCharCategory(line[ch]) === "space") {
 	ch--;
     }
     if (ch < 0) return 0;
 
-    // 3. 句読点はひとまとまり
+    // Treat punctuation as one chunk.
     if (getCharCategory(line[ch]) === "punct") {
 	while (ch >= 0 && getCharCategory(line[ch]) === "punct") {
 	    ch--;
@@ -208,7 +189,7 @@ function findWordBackwardBoundary(line, startCh) {
 	return ch + 1;
     }
 
-    // 4. 英数字列はひとまとまり
+    // Treat ASCII word characters as one chunk.
     if (getCharCategory(line[ch]) === "ascii") {
 	while (ch >= 0 && getCharCategory(line[ch]) === "ascii") {
 	    ch--;
@@ -216,7 +197,7 @@ function findWordBackwardBoundary(line, startCh) {
 	return ch + 1;
     }
 
-    // 5. カタカナ列はひとまとまり
+    // Treat ASCII word characters as one chunk.
     if (getCharCategory(line[ch]) === "katakana") {
 	while (ch >= 0 && getCharCategory(line[ch]) === "katakana") {
 	    ch--;
@@ -224,7 +205,7 @@ function findWordBackwardBoundary(line, startCh) {
 	return ch + 1;
     }
 
-    // 6. ひらがな列
+    // Consume a Hiragana run and optionally merge it into a preceding Kanji run.
     if (getCharCategory(line[ch]) === "hiragana") {
 	const hiraEnd = ch + 1;
 
@@ -236,8 +217,7 @@ function findWordBackwardBoundary(line, startCh) {
 	const hiraLen = hiraEnd - hiraStart;
 	const prevCat = ch >= 0 ? getCharCategory(line[ch]) : "bol";
 
-	// 直前が漢字なら、短いひらがな(1〜2文字)は漢字側に含める
-	// 例: 「環境は」なら「は」は独立させず「環境は」の先頭へ戻る
+        // Merge short Hiragana suffixes into the preceding Kanji chunk.
 	if (prevCat === "kanji" && hiraLen <= 2) {
 	    while (ch >= 0 && getCharCategory(line[ch]) === "kanji") {
 		ch--;
@@ -245,11 +225,10 @@ function findWordBackwardBoundary(line, startCh) {
 	    return ch + 1;
 	}
 
-	// それ以外はひらがな列の先頭
 	return hiraStart;
     }
 
-    // 7. 漢字列
+    // Treat Kanji as one chunk.
     if (getCharCategory(line[ch]) === "kanji") {
 	while (ch >= 0 && getCharCategory(line[ch]) === "kanji") {
 	    ch--;
@@ -257,7 +236,7 @@ function findWordBackwardBoundary(line, startCh) {
 	return ch + 1;
     }
 
-    // 8. その他は1文字戻る
+    // Fallback: move back by one character.
     return ch;
 }
 
@@ -274,15 +253,12 @@ module.exports = class EmacsLitePlugin extends Plugin {
     
     async onload() {
 
-	// 状態変数の追加
 	this.markActive = false;
 	this.markAnchor = null;
 
 	await this.loadSettings();
-	// 設定画面の追加
 	this.addSettingTab(new EmacsLiteSettingTab(this.app, this));
 
-	// window の keydown handler
 	const repeatHandler = (event) => {
 	    const key = event.key.toLowerCase();
 
@@ -315,7 +291,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	window.addEventListener("keydown", repeatHandler, true);
 	this.register(() => window.removeEventListener("keydown", repeatHandler, true));
 	
-	// Ctrl+M: Return.  Enter.
+	// Ctrl+M: insert a newline
 	this.addCommand({
 	    id: "insert-newline",
 	    name: "Insert newline",
@@ -329,132 +305,112 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 
-
-	// Ctrl+A: visual line の左端へ移動
+	// Ctrl+A: move to line start
 	this.addCommand({
 	    id: "cursor-line-start",
 	    name: "Move to line start",
 	    editorCallback: (editor) => this.cursorLineStart(editor),
 	});
 
-	// Ctrl+E: visual line の右端へ移動
+	// Ctrl+E: move to line end
 	this.addCommand({
 	    id: "cursor-line-end",
 	    name: "Move to line end",
 	    editorCallback: (editor) => this.cursorLineEnd(editor),
 	});
 
-	// Ctrl+F: 右へ1文字移動
+	// Ctrl+F: move forward by one character
 	this.addCommand({
 	    id: "cursor-forward",
 	    name: "Move cursor forward by character",
 	    editorCallback: (editor) => this.moveCharForward(editor),
 	});
 	
-	// Ctrl+B: 左へ1文字移動
+	// Ctrl+B: move backward by one character
 	this.addCommand({
 	    id: "cursor-backward",
 	    name: "Move cursor backward by character",
 	    editorCallback: (editor) => this.moveCharBackward(editor),
 	});
 
-	// Ctrl+N: visual line で1行下へ移動
+	// Ctrl+N: move down by one visual line
 	this.addCommand({
 	    id: "move-visual-line-down",
 	    name: "Move visual line down",
 	    editorCallback: (editor) => this.moveLineDown(editor),
 	});
 
-	// Ctrl+P: visual line で1行上へ移動
+	// Ctrl+P: move up by one visual line
 	this.addCommand({
 	    id: "move-visual-line-up",
 	    name: "Move visual line up",
 	    editorCallback: (editor) => this.moveLineUp(editor),
 	});
 	
-        // Ctrl+D: 右側の文字を削除
+	// Ctrl+D: delete the character after the cursor
 	this.addCommand({
             id: "delete-char-forward",
             name: "Delete character forward",
             editorCallback: (editor) => this.deleteCharForward(editor),
         });
 
-	// Ctrl+H: 左側の文字を削除
+	// Ctrl+H: delete the character before the cursor
 	this.addCommand({
 	    id: "delete-char-backward",
 	    name: "Delete character backward",
 	    editorCallback: (editor) => this.deleteCharBackward(editor),
 	});
 
-	// Alt+F: Move cursor forward by chunk
+	// Alt+F: move forward by one chunk
 	this.addCommand({
 	    id: "cursor-chunk-forward",
 	    name: "Move cursor forward by chunk",
 	    editorCallback: (editor) => this.moveChunkForward(editor),
 	});
 
-	// Alt+B: Move cursor backward by chunk
+	// Alt+B: move backward by one chunk
 	this.addCommand({
 	    id: "cursor-chunk-backward",
 	    name: "Move cursor backward by chunk",
 	    editorCallback: (editor) => this.moveChunkBackward(editor),
 	});
 
-	// Alt+D: delete forward by 1 chunk
+	// Alt+D: delete one chunk forward
 	this.addCommand({
 	    id: "delete-chunk-forward",
 	    name: "Delete chunk forward",
 	    editorCallback: (editor) => this.deleteChunkForward(editor),
 	});
 
-	// Alt+H: delete backward by 1 chunk
+	// Alt+H: delete one chunk backward
 	this.addCommand({
 	    id: "delete-chunk-backward",
 	    name: "Delete chunk backward",
 	    editorCallback: (editor) => this.deleteChunkBackward(editor),
 	});
 
-/*	
-	// Ctrl+Z: Undo
-	this.addCommand({
-	    id: "undo",
-	    name: "Undo",
-	    editorCallback: (editor) => this.undo(editor),
-	});
-
-	// Ctrl+Shift+Z: Redo
-	this.addCommand({
-	    id: "redo",
-	    name: "Redo",
-	    editorCallback: (editor) => this.redo(editor),
-	});
-*/
-
-	// 保持用の変数の宣言
-//        this.lastYankText = "";
-	
-	// Ctrl+K: カーソル位置から行末まで削除し、削除内容をクリップボードへ
+	// Ctrl+K: kill from the cursor to the end of the line
 	this.addCommand({
 	    id: "kill-to-end-of-line",
 	    name: "Kill to end of line",
 	    editorCallback: (editor) => this.killToEndOfLine(editor),
 	});
 
-	// Ctrl+;: カーソル一から行末までを選択
+	// Ctrl+;: select from the cursor to the end of the line
 	this.addCommand({
 	    id: "select-to-end-of-line",
 	    name: "Select to end of line",
 	    editorCallback: (editor) => this.selectToEndOfLine(editor),
 	});
 
-	// Ctrl+W: 選択範囲を kill
+	// Ctrl+W: kill the current selection
 	this.addCommand({
 	    id: "kill-region",
 	    name: "Kill region",
 	    editorCallback: (editor) => this.killRegion(editor),
 	});
 	
-	// Alt+W: 選択範囲をコピー（killしない）
+	// Alt+W: copy the current selection without deleting it
 	this.addCommand({
 	    id: "copy-region",
 	    name: "Copy region",
@@ -462,21 +418,21 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	});
 
 
-	// Ctrl+Y: clipboard から貼り付け
+	// Ctrl+Y: yank from the system clipboard
 	this.addCommand({
 	    id: "yank",
 	    name: "Yank",
 	    editorCallback: async (editor) => this.yank(editor),
 	});	
 
-	// Ctrl+C: コピーして mark 解除
+	// Ctrl+C: copy the selection and clear mark
 	this.addCommand({
 	    id: "copy-region-ctrl-c",
 	    name: "Copy region (Ctrl+C)",
 	    editorCallback: (editor) => this.copyRegionCtrlC(editor),
 	});
 
-	// Ctrl+L: カーソル位置を画面中央付近に表示
+	// Ctrl+L: recenter the cursor in the editor view
 	this.addCommand({
 	    id: "recenter-cursor",
 	    name: "Recenter cursor",
@@ -484,14 +440,13 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    editorCallback: (editor) => {
 		const cursor = editor.getCursor();
 
-		// CodeMirror系の scrollIntoView を使って、
-		// カーソル位置が見えるようにしつつ中央寄せを狙う
+		// Scroll the cursor into view first.
 		editor.scrollIntoView(
 		    { from: cursor, to: cursor },
 		    true
 		);
 
-		// 少し待ってから中央へ再調整
+		// Then adjust the scroll position to place it near the vertical center.
 		requestAnimationFrame(() => {
 		    const wrapper = document.querySelector(".cm-scroller");
 		    const cursorEl = document.querySelector(".cm-cursor");
@@ -512,14 +467,14 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 
-	// Ctrl+X: 選択がある場合のみ cut（Windows的挙動）
+	// Ctrl+X: cut only when a selection exists
 	this.addCommand({
 	    id: "cut-region-ctrl-x",
 	    name: "Cut region (Ctrl+X)",
 	    editorCallback: (editor) => this.cutRegionCtrlX(editor),
 	});
 	
-	// Ctrl+< : 文書の先頭へ移動
+	// Ctrl+<: move to the start of the document
 	this.addCommand({
 	    id: "go-to-document-start",
 	    name: "Go to document start",
@@ -530,7 +485,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	});
 
 	
-	// Ctrl+> : 文書の末尾へ移動
+	// Ctrl+>: move to the end of the document
 	this.addCommand({
 	    id: "go-to-document-end",
 	    name: "Go to document end",
@@ -542,7 +497,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 
-	// Ctrl+Space: mark 開始
+	// Ctrl+Space: set mark at the current cursor position
 	this.addCommand({
 	    id: "set-mark",
 	    name: "Set mark",
@@ -555,7 +510,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 
-	// Ctrl+G: mark 解除
+	// Ctrl+G: clear mark
 	this.addCommand({
 	    id: "cancel-mark",
 	    name: "Cancel mark",
@@ -566,11 +521,11 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 
-	// mark中にカーソル移動したら、移動後に選択範囲を同期
+	// Keep the selection in sync while mark is active.
 	this.registerDomEvent(document, "keyup", (evt) => {
 	    if (!this.markActive) return;
 
-	    // mark開始/解除キー自身は除外
+            // Ignore the keys used to set or clear mark themselves.
 	    if (evt.ctrlKey && (evt.key === "g" || evt.code === "Space")) {
 		return;
 	    }
@@ -581,7 +536,10 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    this.syncMarkSelection(editor);
 	});
 
-	
+	// Keymap layer:
+	// - binds supported Emacs-style shortcuts at high priority
+	// - dispatches all actions through command IDs for consistency
+	// - returns false for toggleable overrides to fall back to native behavior	
 	this.registerEditorExtension(
 	    Prec.high(
 		keymap.of([
@@ -743,33 +701,22 @@ module.exports = class EmacsLitePlugin extends Plugin {
 			    return true;
 			}
 		    },
-		    /*
-		    {
-			key: "Ctrl-z",
-			run: () => {
-			    if (!this.settings.enableSystemOverride) return false;
-
-			    this.app.commands.executeCommandById("obsidian-emacs-lite:undo");
-			    return true;
-			}
-		    },
-		    {
-			key: "Ctrl-Shift-z",
-			run: () => {
-			    if (!this.settings.enableSystemOverride) return false;
-
-			    this.app.commands.executeCommandById("obsidian-emacs-lite:redo");
-			    return true;
-			},
-		    },
-		    */
 		])
 	    )
 	);
     }
 
 
-    // Ctrl+Kで使用.
+    /*
+     * Command implementation layer.
+     *
+     * - Each method corresponds to a command invoked from the keymap layer.
+     * - Behavior is split between logical / visual line modes where applicable.
+     * - Mark state (selection) is consistently updated after cursor movement.
+     * - CodeMirror APIs are used when available, with fallback to editor methods.
+     */
+    
+    // Return visual line end position without moving the cursor.
     getVisualLineEnd(editor) {
 	const cm = this.getEditorView();
 
@@ -786,12 +733,14 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	const lineText = editor.getLine(cursor.line);
 	return { line: cursor.line, ch: lineText.length };
     }
-    
+
+    // Get the active editor instance.
     getActiveEditor() {
 	const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 	return view ? view.editor : null;
     }
 
+    // Update selection when mark is active.
     syncMarkSelection(editor) {
 	if (!this.markActive || !this.markAnchor) return;
 
@@ -803,6 +752,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	);
     }
 
+    // Clear mark state and collapse selection.
     clearMark(editor) {
 	const cursor = editor.getCursor("to");
 	editor.setCursor(cursor);
@@ -810,6 +760,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.markAnchor = null;
     }
 
+    
+    // Get underlying CodeMirror EditorView (if available).
     getEditorView() {
 	const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 	if (!view) return null;
@@ -818,7 +770,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return view.editor?.cm ?? null;
     }
 
-    // Ctrl+A method
+    // Ctrl+A: move to line start (logical / visual)
     cursorLineStart(editor) {
 	if (this.settings.lineMode === "logical") {
             return this.cursorLogicalLineStart(editor);
@@ -827,6 +779,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return this.cursorVisualLineStart(editor);
     }
 
+    // Visual line start (CodeMirror boundary)
     cursorVisualLineStart(editor) {
 	const cm = this.getEditorView();
 
@@ -844,6 +797,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
+    // Logical line start (column 0)
     cursorLogicalLineStart(editor) {
 	const cursor = editor.getCursor();
 	editor.setCursor({ line: cursor.line, ch: 0 });
@@ -855,7 +809,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
     
-    // Ctrl+E method
+    // Ctrl+E: move to line end (logical / visual)
     cursorLineEnd(editor) {
 	if (this.settings.lineMode === "logical") {
             return this.cursorLogicalLineEnd(editor);
@@ -864,6 +818,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return this.cursorVisualLineEnd(editor);
     }
 
+    // Visual line end (CodeMirror boundary)
     cursorVisualLineEnd(editor) {
 	const cm = this.getEditorView();
 
@@ -881,7 +836,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	return true;
     }
-    
+
+    // Logical line end (line length)
     cursorLogicalLineEnd(editor) {
 	const cursor = editor.getCursor();
 	const lineText = editor.getLine(cursor.line);
@@ -896,7 +852,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
     }
 
     
-    // Alt+W Method
+    // Alt+W: Copy selection without deleting it 
     copyRegion(editor) {
 	const selection = editor.getSelection();
 
@@ -914,7 +870,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
     
-    // Ctrl+W Method
+    // Ctrl+W: Kill (cut) selection
     killRegion(editor) {
 	const selection = editor.getSelection();
 
@@ -934,7 +890,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
     
-    // Ctrl+C Method
+    // Ctrl+C: Copy selection and clear mark
     copyRegionCtrlC(editor) {
 	const selection = editor.getSelection();
 
@@ -944,9 +900,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	clipboard.writeText(selection);
 
-	// fallback 用に残してもok
-	// this.lastYankText = selection;
-
 	if (this.markActive) {
 	    this.clearMark(editor);
 	}
@@ -954,42 +907,26 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
-    // Ctrl+X Method
+    // Ctrl+X: Cut selection only if it exists
     cutRegionCtrlX(editor) {
 	const selection = editor.getSelection();
 
-	// 選択がなければ何もしない（Windows準拠）
 	if (!selection || selection.length === 0) {
 	    return true;
 	}
 
-	// clipboardへ書き込み
 	clipboard.writeText(selection);
 
-	// 削除
 	editor.replaceSelection("");
 
-	// mark解除（必要なら）
 	if (this.markActive) {
 	    this.clearMark(editor);
 	}
 
 	return true;
     }
-/*
-    // Ctrl+Z Method
-    undo(editor) {
-	editor.undo();
-	return true;
-    }
-    
-    // Ctrl+Shift+Z Method
-    redo(editor) {
-	editor.redo();
-	return true;
-    }
- */  
-    // Ctrl+F Method
+
+    // Ctrl+F: Move forward by one character
     moveCharForward(editor) {
 	const offset = editor.posToOffset(editor.getCursor());
 	const newPos = editor.offsetToPos(offset + 1);
@@ -1002,7 +939,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
-    // Ctrl+B Method
+    // Ctrl+B: Move forward by one character
     moveCharBackward(editor) {
 	const offset = editor.posToOffset(editor.getCursor());
 	const newOffset = Math.max(offset - 1, 0);
@@ -1017,7 +954,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
-    // Ctrl+P Method
+    // Ctrl+P: Move backward by one character
+    // Keeps selection consistent when mark is active.
     moveLineUp(editor) {
 	const cm = this.getEditorView();
 
@@ -1025,7 +963,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    if (this.markActive && this.markAnchor) {
 		const head = cm.state.selection.main.head;
 
-		// いったん head だけの単独カーソルにする
 		cm.dispatch({
 		    selection: { anchor: head, head: head }
 		});
@@ -1043,7 +980,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 		cursorLineUp(cm);
 	    }
 	} else {
-	    // fallback: 論理行ベース
 	    const cursor = editor.getCursor();
 	    const newLine = Math.max(cursor.line - 1, 0);
 	    const lineLength = editor.getLine(newLine).length;
@@ -1062,7 +998,8 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
-    // Ctrl+N Method
+    // Ctrl+N: Move down by one visual line
+    // Keeps selection consistent when mark is active.
     moveLineDown(editor) {
 	const cm = this.getEditorView();
 
@@ -1070,7 +1007,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    if (this.markActive && this.markAnchor) {
 		const head = cm.state.selection.main.head;
 
-		// いったん head だけの単独カーソルにする
 		cm.dispatch({
 		    selection: { anchor: head, head: head }
 		});
@@ -1107,11 +1043,11 @@ module.exports = class EmacsLitePlugin extends Plugin {
     }
     
 
-    // Ctrl+D Method
+    // Ctrl+D: Delete character forward
+    // Joins lines when at end of line.
     deleteCharForward(editor) {
 	const selection = editor.getSelection();
 
-	// 選択範囲がある場合は、その範囲を削除
 	if (selection && selection.length > 0) {
             editor.replaceSelection("");
 
@@ -1125,7 +1061,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	const cursor = editor.getCursor();
 	const line = editor.getLine(cursor.line);
 
-	// 行末で、かつ最終行でもある場合は何もしない
 	const isEndOfLine = cursor.ch >= line.length;
 	const isLastLine = cursor.line >= editor.lineCount() - 1;
 
@@ -1133,9 +1068,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
             return true;
 	}
 
-	// 通常ケース:
-	// - 行中なら右1文字削除
-	// - 行末なら次行との改行を削除（Emacs/Ctrl-d風）
 	const from = { line: cursor.line, ch: cursor.ch };
 	const to = isEndOfLine
               ? { line: cursor.line + 1, ch: 0 }
@@ -1146,11 +1078,11 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
     
-    // Ctrl+H Method
+    // Ctrl+H: Delete character backward
+    // Joins lines when at start of line.
     deleteCharBackward(editor) {
 	const selection = editor.getSelection();
 
-	// 選択範囲がある場合は、その範囲を削除
 	if (selection && selection.length > 0) {
 	    editor.replaceSelection("");
 
@@ -1163,7 +1095,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	const cursor = editor.getCursor();
 
-	// 文書先頭なら何もしない
 	const isStartOfLine = cursor.ch === 0;
 	const isFirstLine = cursor.line === 0;
 
@@ -1171,9 +1102,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    return true;
 	}
 
-	// 通常ケース:
-	// - 行中なら左1文字削除
-	// - 行頭なら前行との改行を削除
 	const from = isStartOfLine
 	      ? { line: cursor.line - 1, ch: editor.getLine(cursor.line - 1).length }
 	      : { line: cursor.line, ch: cursor.ch - 1 };
@@ -1185,7 +1113,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
-    // Ctrl+K Method
+    // Ctrl+K: kill to end of line (logical / visual)
     killToEndOfLine(editor) {
 	if (this.settings.lineMode === "logical") {
             return this.killToEndOfLogicalLine(editor);
@@ -1194,7 +1122,16 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return this.killToEndOfVisualLine(editor);
     }
 
-    // logical line 用のrangeを取得
+
+    /*
+     * Range and chunk operations.
+     *
+     * - Provides range calculation for logical / visual line behavior.
+     * - Used by kill (Ctrl+K) and selection (Ctrl+;) commands.
+     * - Chunk operations implement Japanese-aware navigation and deletion.
+     */
+
+    // Get range to end of logical line.
     getRangeToEndOfLogicalLine(editor) {
 	const selection = editor.getSelection();
 
@@ -1226,7 +1163,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return { from, to, text };
     }
     
-    // visual line 用のrangeを取得
+    // Get range to end of visual line.
     getRangeToEndOfVisualLine(editor) {
 	const selection = editor.getSelection();
 
@@ -1261,12 +1198,12 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return { from, to, text };
     }
 
+    // Apply kill operation: copy to clipboard and delete.
     applyKillRange(editor, rangeInfo) {
 	const { from, to, text } = rangeInfo;
 
 	if (!text || text.length === 0) return true;
 
-//	this.lastYankText = text;
 	clipboard.writeText(text);
 
 	editor.replaceRange("", from, to);
@@ -1275,19 +1212,19 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
-    // logical line kill
+    // Kill to end of logical line.
     killToEndOfLogicalLine(editor) {
 	const rangeInfo = this.getRangeToEndOfLogicalLine(editor);
 	return this.applyKillRange(editor, rangeInfo);
     }
 
-    // visual line kill
+    // Kill to end of visual line.
     killToEndOfVisualLine(editor) {
 	const rangeInfo = this.getRangeToEndOfVisualLine(editor);
 	return this.applyKillRange(editor, rangeInfo);
     }
 
-    // Ctrl+; Method using getRangeToEndOfVisualLine(editor) 
+    // Ctrl+;: select to end of line (logical / visual)
     selectToEndOfLine(editor) {
 	if (this.settings.lineMode === "logical") {
             return this.selectToEndOfLogicalLine(editor);
@@ -1295,9 +1232,9 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	return this.selectToEndOfVisualLine(editor);
     }
-    
+
+    // Logical line selection (extends mark if active).
     selectToEndOfLogicalLine(editor) {
-	// Mark Activeかを確認
 	if (this.markActive) {
             const cursor = editor.getCursor();
             const lineText = editor.getLine(cursor.line);
@@ -1316,9 +1253,9 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	editor.setSelection(from, to);
 	return true;
     }
-    
+
+    // Visual line selection (extends mark if active).
     selectToEndOfVisualLine(editor) {
-	// Mark Activeかを確認
 	if (this.markActive) {
             const to = this.getVisualLineEnd(editor);
             editor.setCursor(to);
@@ -1336,7 +1273,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
     }
     
 
-    // Ctrl+Y Method
+    // Ctrl+Y: Paste from system clipboard
     async yank(editor) {
 	let text = "";
 
@@ -1359,7 +1296,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
     
-    // Alt+F Method
+    // Alt+F: Paste from system clipboard
     moveChunkForward(editor) {
 	const cursor = editor.getCursor();
 
@@ -1417,7 +1354,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
-    // Alt+B Method
+    // Alt+B: Move forward by one chunk
     moveChunkBackward(editor) {
 	const cursor = editor.getCursor();
 
@@ -1474,11 +1411,10 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
-    // Alt+D Method
+    // Alt+D: Move backward by one chunk
     deleteChunkForward(editor) {
 	const selection = editor.getSelection();
 
-	// 選択範囲がある場合は、その範囲を削除
 	if (selection && selection.length > 0) {
 	    editor.replaceSelection("");
 
@@ -1539,7 +1475,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
     }
     
 
-    // Alt+H method
+    // Alt+H: Delete backward by one chunk
     deleteChunkBackward(editor) {
 	const selection = editor.getSelection();
 
@@ -1604,6 +1540,16 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 };
 
+
+/*
+ * Plugin settings UI.
+ *
+ * Provides runtime toggles for:
+ * - key repeat
+ * - line mode (visual / logical)
+ * - extended key bindings
+ * - system shortcut overrides
+ */
 class EmacsLiteSettingTab extends PluginSettingTab {
     constructor(app, plugin) {
 	super(app, plugin);
