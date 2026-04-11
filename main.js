@@ -16,12 +16,15 @@ const {
 } = require("@codemirror/commands");
 const { EditorSelection } = require("@codemirror/state");
 
-// Default plugin settings
-// - enableKeyRepeat: allows press-and-hold repetition for supported Emacs-like keys
-// - lineMode: "logical" (default) or "visual" line behavior
-// - enableExtendedDelete: toggles extended delete bindings (Ctrl+H / Alt+H)
-// - enableExtendedSelection: toggles extended selection binding (Ctrl+;)
-// - enableSystemOverride: toggles overriding of common system shortcuts (Ctrl+X/C/Z)
+/*
+Default plugin settings
+ - enableKeyRepeat: allows press-and-hold repetition for supported Emacs-like keys
+ - lineMode: "logical" (default) or "visual" line behavior
+ - enableExtendedDelete: toggles extended delete bindings (Ctrl+H / Alt+H)
+ - enableExtendedSelection: toggles extended selection binding (Ctrl+;)
+ - enableSystemOverride: toggles overriding of common system shortcuts (Ctrl+X/C/Z)
+*/
+
 const DEFAULT_SETTINGS = {
     enableKeyRepeat: true,
     lineMode: "logical",
@@ -510,15 +513,12 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	    },
 	});
 
-	// Ctrl+G: clear mark
+	// Ctrl+G: cancel mark
 	this.addCommand({
 	    id: "cancel-mark",
 	    name: "Cancel mark",
 	    hotkeys: [{ modifiers: ["Ctrl"], key: "g" }],
-	    editorCallback: (editor) => {
-		if (!this.markActive) return;
-		this.clearMark(editor);
-	    },
+	    editorCallback: (editor) => this.cancelMark(editor),
 	});
 
 	// Keep the selection in sync while mark is active.
@@ -752,6 +752,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	);
     }
 
+
     // Clear mark state and collapse selection.
     clearMark(editor) {
 	const cursor = editor.getCursor("to");
@@ -760,6 +761,20 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	this.markAnchor = null;
     }
 
+    // Ctrl+G: Clear selection and cancel mark
+    cancelMark(editor) {
+	const selection = editor.getSelection();
+
+	if (selection && selection.length > 0) {
+            const cursor = editor.getCursor("to");
+            editor.setCursor(cursor);
+	}
+
+	this.markActive = false;
+	this.markAnchor = null;
+
+	return true;
+    }
     
     // Get underlying CodeMirror EditorView (if available).
     getEditorView() {
@@ -851,7 +866,6 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return true;
     }
 
-    
     // Alt+W: Copy selection without deleting it 
     copyRegion(editor) {
 	const selection = editor.getSelection();
@@ -861,7 +875,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	}
 
 	clipboard.writeText(selection);
-	// this.lastYankText = selection;
+
 
 	if (this.markActive) {
 	    this.clearMark(editor);
@@ -869,7 +883,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	return true;
     }
-    
+
     // Ctrl+W: Kill (cut) selection
     killRegion(editor) {
 	const selection = editor.getSelection();
@@ -889,23 +903,25 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	return true;
     }
-    
-    // Ctrl+C: Copy selection and clear mark
+
+    // Ctrl+C override: Copy selection and clear mark only if mark is active
     copyRegionCtrlC(editor) {
 	const selection = editor.getSelection();
 
 	if (!selection || selection.length === 0) {
-	    return true;
+            return true;
 	}
 
 	clipboard.writeText(selection);
 
+	// Clear selection only when it comes from mark mode.
 	if (this.markActive) {
-	    this.clearMark(editor);
+            this.clearMark(editor);
 	}
 
 	return true;
     }
+
 
     // Ctrl+X: Cut selection only if it exists
     cutRegionCtrlX(editor) {
@@ -1224,6 +1240,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return this.applyKillRange(editor, rangeInfo);
     }
 
+    
     // Ctrl+;: select to end of line (logical / visual)
     selectToEndOfLine(editor) {
 	if (this.settings.lineMode === "logical") {
@@ -1233,6 +1250,7 @@ module.exports = class EmacsLitePlugin extends Plugin {
 	return this.selectToEndOfVisualLine(editor);
     }
 
+    
     // Logical line selection (extends mark if active).
     selectToEndOfLogicalLine(editor) {
 	if (this.markActive) {
@@ -1250,6 +1268,9 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	if (!text || text.length === 0) return true;
 
+	this.markActive = true;
+	this.markAnchor = { line: from.line, ch: from.ch };
+	
 	editor.setSelection(from, to);
 	return true;
     }
@@ -1268,11 +1289,14 @@ module.exports = class EmacsLitePlugin extends Plugin {
 
 	if (!text || text.length === 0) return true;
 
+	this.markActive = true;
+	this.markAnchor = { line: from.line, ch: from.ch };
+	
 	editor.setSelection(from, to);
 	return true;
     }
-    
 
+    
     // Ctrl+Y: Paste from system clipboard
     async yank(editor) {
 	let text = "";
