@@ -1,4 +1,4 @@
-# obsidian-emacs-lite (for Windows users)
+# Emacs Lite (for Obsidian)
 
 Emacs-like keybindings for Obsidian, designed for Windows users.
 
@@ -26,7 +26,7 @@ It is not a full Emacs emulation, but a **practical and stable subset**.
 - Cursor movement  
   - `Ctrl+F (forward) / B (backward) / P (upward) / N (downward)`
   - `Ctrl+A (beginning of line) / E (end of line)`
-  - `Ctrl+< (beginning of note) / Ctrl+> (end of note)`
+  - `Ctrl+< (beginning of note) / Ctrl+> (end of note)`  (depending on keyboard layout)
 
 - Word / chunk movement  
   - `Alt+F (forward) / B (backward)`
@@ -107,42 +107,44 @@ When disabled, native Obsidian / OS behavior is preserved.
 - Pressing Ctrl+C clears the selection.
 
 - Regarding Ctrl+X
-Ctrl+X typically cuts the entire logical line in Obsidian by default. In this plugin, it cuts the selected range, similar to Windows.
+Ctrl+X typically cuts the entire logical line in Obsidian by default.
+In this plugin, it cuts the selected range, similar to Windows.
 
 - Regarding Ctrl+A/E
 In Visual mode, pressing Ctrl+E moves the cursor to the end of the visual line on the first press and to the end of the logical line on the second press. 
 Similarly, pressing Ctrl+A moves the cursor to the beginning of the visual line on the first press and to the beginning of the logical line on the second press.
-This behaviors remains the same even when the mark is active.
+These behaviors remain the same even when the mark is active.
 
 ---
 
 ## Installation
 
+### From Community Plugins (recommended)
+
+1. Open Obsidian
+2. Go to Settings → Community Plugins
+3. Disable Safe Mode
+4. Search for "Emacs Lite"
+5. Install and enable the plugin
+
+### Manual installation
+
 1. Copy this plugin into your vault:
 
-.obsidian/plugins/obsidian-emacs-lite/
+   .obsidian/plugins/obsidian-emacs-lite/
 
-2. Open Settings.
-
-3. Click the refresh icon (the rotating arrow) in the "installed plugins" section.
-
-4. Once the plugin name (Emacs lite) appears, enable it.
-
-5. Adjust settings (key repeat, line mode, hotkey toggles) as needed.
+2. Reload Obsidian
+3. Enable the plugin in Settings
 
 ---
 
 ## Notes
 
-- This plugin is optimized for Windows environments
-
-- Some behaviors intentionally differ from full Emacs for practicality and stability
-
-- Undo(Ctrl+Z)/Redo(Ctrl+Shift+Z) currently use native Obsidian behavior
-
-- Ctrl+V remains the default Windows shortcut (Paste)
-
-- Alt+V (move up by one page) is not implemented (to remain consistent with the decision not to override Ctrl+V).
+- Optimized for Windows environments
+- Not a full Emacs emulation (focuses on practical behavior)
+- Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) use native Obsidian behavior
+- Ctrl+V remains the default Windows paste behavior
+- Alt+V (page up) is intentionally not implemented
 
 ---
 

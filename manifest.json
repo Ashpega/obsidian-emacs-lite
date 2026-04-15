@@ -1,9 +1,9 @@
 {
-  "id": "obsidian-emacs-lite",
-  "name": "Emacs Lite",
-  "version": "1.0.0",
-  "minAppVersion": "1.5.0",
-  "description": "Simple Emacs keybindings",
-  "author": "Ashpega",
-  "isDesktopOnly": false
+    "id": "obsidian-emacs-lite",
+    "name": "Emacs Lite",
+    "version": "1.0.0",
+    "minAppVersion": "1.5.0",
+    "author": "Ashpega",
+    "description": "Emacs-like keybindings for Obsidian, designed for Windows users."
+    "isDesktopOnly": false
 }
